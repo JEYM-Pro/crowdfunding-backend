@@ -1,6 +1,7 @@
 package co.udea.crowdfunding.controller;
 
 import co.udea.crowdfunding.config.UserPrincipal;
+import co.udea.crowdfunding.dto.BalanceResponse;
 import co.udea.crowdfunding.dto.RechargeRequest;
 import co.udea.crowdfunding.dto.RechargeResponse;
 import co.udea.crowdfunding.dto.UpdateProfileRequest;
@@ -10,6 +11,7 @@ import co.udea.crowdfunding.service.UserService;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -46,6 +48,13 @@ public class UserController {
                 updated.getBalance(),
                 "Recarga realizada exitosamente"
         ));
+    }
+
+    @GetMapping("/balance")
+    public ResponseEntity<BalanceResponse> getBalance(
+            @AuthenticationPrincipal UserPrincipal principal) {
+
+        return ResponseEntity.ok(userService.getBalanceDetail(principal.getId()));
     }
 
     private UserResponse toResponse(User user) {
