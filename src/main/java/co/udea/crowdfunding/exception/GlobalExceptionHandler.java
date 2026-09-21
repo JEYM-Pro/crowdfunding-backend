@@ -26,4 +26,14 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.CONFLICT)
                 .body(new ApiError(ex.getMessage(), Map.of()));
     }
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<ApiError> handleIllegalArgument(IllegalArgumentException ex) {
+        String message = ex.getMessage();
+        HttpStatus status = message.contains("inválidas") || message.contains("no encontrado")
+                ? HttpStatus.UNAUTHORIZED
+                : HttpStatus.BAD_REQUEST;
+        return ResponseEntity.status(status)
+                .body(new ApiError(message, Map.of()));
+    }
 }

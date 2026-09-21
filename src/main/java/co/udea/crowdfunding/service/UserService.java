@@ -1,6 +1,7 @@
 package co.udea.crowdfunding.service;
 
 import co.udea.crowdfunding.dto.RegisterRequest;
+import co.udea.crowdfunding.dto.UpdateProfileRequest;
 import co.udea.crowdfunding.entity.User;
 import co.udea.crowdfunding.exception.EmailAlreadyExistsException;
 import co.udea.crowdfunding.repository.UserRepository;
@@ -8,6 +9,10 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.time.Instant;
+import java.util.Optional;
+import java.util.UUID;
 
 @Service
 public class UserService {
@@ -38,5 +43,24 @@ public class UserService {
         } catch (DataIntegrityViolationException ex) {
             throw new EmailAlreadyExistsException();
         }
+    }
+
+    @Transactional
+    public User updateProfile(UUID userId, UpdateProfileRequest request) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new IllegalArgumentException("Usuario no encontrado"));
+
+        String newEmail = request.email().trim().toLowerCase();
+
+        Optional<User> existingUser = userRepository.findByEmail(newEmail);
+        if (existingUser.isPresent() && !existingUser.get().getId().equals(userId)) {
+            throw new EmailAlreadyExistsException();
+        }
+
+        user.setName(request.name().trim());
+        user.setEmail(newEmail);
+        user.setUpdatedAt(Instant.now());
+
+        return userRepository.save(user);
     }
 }
