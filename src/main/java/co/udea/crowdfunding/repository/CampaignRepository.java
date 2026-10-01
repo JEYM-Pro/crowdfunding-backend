@@ -9,4 +9,6 @@ import java.util.UUID;
 public interface CampaignRepository extends JpaRepository<Campaign, UUID> {
 
     List<Campaign> findByUserId(UUID userId);
+
+    long countByUserId(UUID userId);
 }

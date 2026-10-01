@@ -11,4 +11,6 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
     List<Transaction> findByUserIdAndType(UUID userId, String type);
 
     List<Transaction> findByUserIdOrderByDateDesc(UUID userId);
+
+    long countByUserId(UUID userId);
 }

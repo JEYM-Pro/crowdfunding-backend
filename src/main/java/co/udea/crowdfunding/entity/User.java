@@ -31,6 +31,9 @@ public class User {
     @Column(nullable = false, length = 20)
     private String role = "sponsor";
 
+    @Column(nullable = false, length = 20)
+    private String status = "ACTIVE";
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt = Instant.now();
 
@@ -54,6 +57,7 @@ public class User {
     public BigDecimal getBalance() { return balance; }
     public BigDecimal getHistoric() { return historic; }
     public String getRole() { return role; }
+    public String getStatus() { return status; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
 
@@ -62,5 +66,6 @@ public class User {
     public void setBalance(BigDecimal balance) { this.balance = balance; }
     public void setHistoric(BigDecimal historic) { this.historic = historic; }
     public void setRole(String role) { this.role = role; }
+    public void setStatus(String status) { this.status = status; }
     public void setUpdatedAt(Instant updatedAt) { this.updatedAt = updatedAt; }
 }
