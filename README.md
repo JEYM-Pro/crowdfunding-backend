@@ -392,3 +392,24 @@ En Windows reemplazar `./mvnw` por `.\mvnw.cmd`.
 ## Licencia
 
 MIT — Uso académico CodeFactory UdeA.
+---
+
+## Campañas (HU-06 y HU-07)
+
+**Antes de levantar el backend** ejecutar en Supabase (SQL Editor) el script
+`src/main/resources/db/migration/V3__campaigns_publish_and_edit.sql`
+(`ddl-auto=validate` no crea tablas ni columnas). Es idempotente.
+
+| Método | Endpoint | Descripción |
+|---|---|---|
+| `POST` | `/api/campaigns` | HU-06: publica una campaña (queda `ACTIVE`). Devuelve 201. |
+| `PUT` | `/api/campaigns/{id}` | HU-07: edita título, descripción, categoría e imágenes de una campaña activa. Meta y fecha solo si `raised = 0`. Las recompensas no se pueden modificar (409). |
+| `GET` | `/api/campaigns` | Listado público de campañas activas. |
+| `GET` | `/api/campaigns/{id}` | Detalle de una campaña. |
+| `GET` | `/api/categories` | Categorías para el selector del formulario. |
+
+Reglas: meta > 0; fecha límite posterior a hoy y máximo 90 días; hasta 4 imágenes (URL http/https);
+categoría obligatoria (Tecnología, Agricultura, Arte y cultura, Educación, Medio ambiente, Comunidad, Salud);
+hasta 6 recompensas opcionales, cada una con monto mínimo y unidades disponibles mayores a cero, que quedan fijas al publicar. Errores: 400 (validación), 403 (no es el creador), 404 (no existe), 409 (campaña no activa o con aportes).
+
+Pruebas y cobertura: `mvn test` genera el reporte JaCoCo en `target/site/jacoco/index.html`.
