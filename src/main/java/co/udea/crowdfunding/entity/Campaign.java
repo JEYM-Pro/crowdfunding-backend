@@ -172,4 +172,12 @@ public class Campaign {
     public UUID getUserId() { return userId; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
+
+    public void setStatus(CampaignStatus status) {
+        this.status = status;
+    }
+
+    public void addRaisedAmount(BigDecimal amount) {
+        this.raised = this.raised.add(amount);
+    }
 }

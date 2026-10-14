@@ -4,6 +4,7 @@ import co.udea.crowdfunding.config.UserPrincipal;
 import co.udea.crowdfunding.dto.CampaignResponse;
 import co.udea.crowdfunding.dto.CreateCampaignRequest;
 import co.udea.crowdfunding.dto.UpdateCampaignRequest;
+import co.udea.crowdfunding.dto.UpdateCampaignStatusRequest;
 import co.udea.crowdfunding.service.CampaignService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -13,11 +14,13 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -62,8 +65,35 @@ public class CampaignController {
     }
 
     @GetMapping
-    @Operation(summary = "Listado público de campañas activas")
-    public ResponseEntity<List<CampaignResponse>> listActive() {
-        return ResponseEntity.ok(campaignService.listActive());
+    @Operation(summary = "Listado público de campañas activas (con filtros)")
+    public ResponseEntity<List<CampaignResponse>> listActive(
+            @RequestParam(required = false) String nombre,
+            @RequestParam(required = false) UUID categoria,
+            @RequestParam(required = false) String orden) {
+        
+        List<CampaignResponse> campaigns = campaignService.exploreActiveCampaigns(nombre, categoria, orden);
+        return ResponseEntity.ok(campaigns);
     }
+
+    @PatchMapping("/{id}/status")
+    public ResponseEntity<CampaignResponse> updateStatus(
+            @PathVariable UUID id,
+            @RequestBody UpdateCampaignStatusRequest request,
+            @AuthenticationPrincipal UserPrincipal principal) {
+
+        CampaignResponse response = campaignService.updateCampaignStatus(id, request.getStatus(), principal.getId());
+        return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/{id}/contributions")
+    @Operation(summary = "Realizar un aporte a una campaña activa")
+    public ResponseEntity<String> makeContribution(
+            @PathVariable java.util.UUID id,
+            @RequestBody co.udea.crowdfunding.dto.ContributionRequest request,
+            @AuthenticationPrincipal UserPrincipal principal) {
+        
+        campaignService.makeContribution(id, request.getAmount(), principal.getId());
+        return ResponseEntity.ok("Aporte realizado exitosamente.");
+    }
+
 }
