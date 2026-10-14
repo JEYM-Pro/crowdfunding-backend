@@ -1,5 +1,6 @@
 package co.udea.crowdfunding.service;
 
+import org.springframework.data.domain.Sort;
 import co.udea.crowdfunding.dto.CampaignResponse;
 import co.udea.crowdfunding.dto.CreateCampaignRequest;
 import co.udea.crowdfunding.dto.RewardRequest;
@@ -46,7 +47,6 @@ public class CampaignService {
 
     private static final String ROLE_SPONSOR = "sponsor";
     private static final String ROLE_CREATOR = "creator";
-
     private final CampaignRepository campaignRepository;
     private final CategoryRepository categoryRepository;
     private final CampaignStatusHistoryRepository statusHistoryRepository;
@@ -162,6 +162,53 @@ public class CampaignService {
                 .toList();
     }
 
+    /** HU-09: Explorar y filtrar campañas activas */
+    public List<CampaignResponse> exploreActiveCampaigns(String nameFilter, UUID categoryIdFilter, String sortBy) {
+        
+        // 1. Determinar el criterio de ordenamiento
+        Sort sortCriteria = Sort.by(Sort.Direction.DESC, "createdAt"); // Por defecto: más recientes
+
+        if (sortBy != null && !sortBy.isBlank()) {
+            switch (sortBy.toLowerCase()) {
+                case "recaudo":
+                    sortCriteria = Sort.by(Sort.Direction.DESC, "raised"); // Mayor recaudo primero
+                    break;
+                case "fecha":
+                    sortCriteria = Sort.by(Sort.Direction.ASC, "deadline"); // Próximas a vencer primero
+                    break;
+                case "popularidad":
+                    // Asumiremos que popularidad es igual a recaudo por ahora, o podrías usar la cantidad de transacciones si la tuvieras
+                    sortCriteria = Sort.by(Sort.Direction.DESC, "raised"); 
+                    break;
+            }
+        }
+
+        // 2. Ejecutar la búsqueda combinando los filtros
+        List<Campaign> campaigns;
+        boolean hasName = (nameFilter != null && !nameFilter.isBlank());
+        boolean hasCategory = (categoryIdFilter != null);
+
+        if (hasName && hasCategory) {
+            campaigns = campaignRepository.findByTitleContainingIgnoreCaseAndCategoryIdAndStatus(nameFilter, categoryIdFilter, CampaignStatus.ACTIVE, sortCriteria);
+        } else if (hasName) {
+            campaigns = campaignRepository.findByTitleContainingIgnoreCaseAndStatus(nameFilter, CampaignStatus.ACTIVE, sortCriteria);
+        } else if (hasCategory) {
+            campaigns = campaignRepository.findByCategoryIdAndStatus(categoryIdFilter, CampaignStatus.ACTIVE, sortCriteria);
+        } else {
+            campaigns = campaignRepository.findByStatus(CampaignStatus.ACTIVE, sortCriteria);
+        }
+
+        // 3. Mapear las entidades encontradas a DTOs (igual que lo hacía tu compañero)
+        Map<UUID, String> categoryNames = categoryRepository
+                .findAllById(campaigns.stream().map(Campaign::getCategoryId).distinct().toList())
+                .stream()
+                .collect(Collectors.toMap(Category::getId, Category::getName, (first, second) -> first));
+
+        return campaigns.stream()
+                .map(campaign -> CampaignResponse.from(campaign, categoryNames.get(campaign.getCategoryId())))
+                .toList();
+    }
+
     // --------------------------------------------------------------- Helpers
 
     private Campaign findCampaign(UUID campaignId) {
@@ -220,4 +267,70 @@ public class CampaignService {
             userRepository.save(user);
         }
     }
+
+    @Transactional
+    public CampaignResponse updateCampaignStatus(UUID campaignId, CampaignStatus newStatus, UUID userId) {
+        Campaign campaign = campaignRepository.findById(campaignId)
+                .orElseThrow(() -> new CampaignNotFoundException());
+
+        // Validación de permisos: Usamos el método isOwnedBy que ya trae la entidad
+        if (!campaign.isOwnedBy(userId)) {
+            throw new CampaignAccessDeniedException();
+        }
+
+        // Si se cierra, simulamos la notificación a patrocinadores requerida por la HU-08
+        if (newStatus == CampaignStatus.CLOSED) {
+            System.out.println("Notificando a los patrocinadores que la campaña " + campaign.getTitle() + " ha sido cerrada.");
+        }
+
+        campaign.setStatus(newStatus);
+        Campaign updatedCampaign = campaignRepository.save(campaign);
+
+        // Retornamos la respuesta
+        return CampaignResponse.from(updatedCampaign, categoryName(updatedCampaign.getCategoryId()));
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    private co.udea.crowdfunding.repository.TransactionRepository transactionRepository;
+
+    @Transactional
+    public void makeContribution(UUID campaignId, java.math.BigDecimal amount, UUID userId) {
+        // 1. Validar que el monto sea mayor a cero
+        if (amount == null || amount.compareTo(java.math.BigDecimal.ZERO) <= 0) {
+            throw new IllegalArgumentException("El monto a aportar debe ser mayor a cero.");
+        }
+
+        // 2. Buscar la campaña y validar que esté activa
+        Campaign campaign = campaignRepository.findById(campaignId)
+                .orElseThrow(() -> new CampaignNotFoundException());
+        
+        if (campaign.getStatus() != CampaignStatus.ACTIVE) {
+            throw new IllegalStateException("No se pueden realizar aportes a una campaña que no está activa.");
+        }
+
+        // 3. Buscar al usuario patrocinador
+        User sponsor = userRepository.findById(userId)
+                .orElseThrow(() -> new IllegalArgumentException("Usuario no encontrado."));
+
+        // 4. Descontar saldo y sumar recaudo
+        sponsor.subtractBalance(amount);
+        campaign.addRaisedAmount(amount);
+
+        // 5. Guardar los cambios
+        userRepository.save(sponsor);
+        campaignRepository.save(campaign);
+
+        // 6. Registrar la transacción en el historial con los 6 parámetros correctos
+        co.udea.crowdfunding.entity.Transaction transaction = new co.udea.crowdfunding.entity.Transaction(
+            amount, 
+            clock.instant(), 
+            "CONTRIBUTION", 
+            sponsor.getId(), 
+            campaign.getId(), 
+            campaign.getTitle()
+        );
+        transactionRepository.save(transaction);
+    }
+
 }
+

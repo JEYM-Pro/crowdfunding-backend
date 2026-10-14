@@ -68,4 +68,11 @@ public class User {
     public void setRole(String role) { this.role = role; }
     public void setStatus(String status) { this.status = status; }
     public void setUpdatedAt(Instant updatedAt) { this.updatedAt = updatedAt; }
+
+    public void subtractBalance(BigDecimal amount) {
+        if (this.balance.compareTo(amount) < 0) {
+            throw new IllegalStateException("Saldo insuficiente para realizar el aporte.");
+        }
+        this.balance = this.balance.subtract(amount);
+    }
 }

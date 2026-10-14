@@ -14,4 +14,16 @@ public interface CampaignRepository extends JpaRepository<Campaign, UUID> {
     long countByUserId(UUID userId);
 
     List<Campaign> findByStatusOrderByCreatedAtDesc(CampaignStatus status);
+
+    // Método para la HU-09: Buscar por nombre parcial (ignorando mayúsculas/minúsculas) y por categoría, ordenado
+    List<Campaign> findByTitleContainingIgnoreCaseAndCategoryIdAndStatus(String title, UUID categoryId, CampaignStatus status, org.springframework.data.domain.Sort sort);
+
+    // Método alternativo si el usuario solo filtra por nombre y no por categoría
+    List<Campaign> findByTitleContainingIgnoreCaseAndStatus(String title, CampaignStatus status, org.springframework.data.domain.Sort sort);
+
+    // Método alternativo si el usuario solo filtra por categoría
+    List<Campaign> findByCategoryIdAndStatus(UUID categoryId, CampaignStatus status, org.springframework.data.domain.Sort sort);
+
+    // Método base para traer todas las activas pero permitiendo ordenamiento
+    List<Campaign> findByStatus(CampaignStatus status, org.springframework.data.domain.Sort sort);
 }
