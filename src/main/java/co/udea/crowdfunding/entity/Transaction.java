@@ -31,6 +31,14 @@ public class Transaction {
     @Column(name = "campaign_name")
     private String campaignName;
 
+    /** HU-11: recompensa elegida al aportar (opcional). */
+    @Column(name = "reward_id")
+    private UUID rewardId;
+
+    /** Copia histórica del nombre de la recompensa, para que el comprobante no dependa de que siga existiendo. */
+    @Column(name = "reward_name", length = 150)
+    private String rewardName;
+
     protected Transaction() {
     }
 
@@ -43,6 +51,13 @@ public class Transaction {
         this.campaignName = campaignName;
     }
 
+    public Transaction(BigDecimal amount, Instant date, String type, UUID userId, UUID campaignId,
+                       String campaignName, UUID rewardId, String rewardName) {
+        this(amount, date, type, userId, campaignId, campaignName);
+        this.rewardId = rewardId;
+        this.rewardName = rewardName;
+    }
+
     public UUID getId() { return id; }
     public BigDecimal getAmount() { return amount; }
     public Instant getDate() { return date; }
@@ -50,4 +65,6 @@ public class Transaction {
     public UUID getUserId() { return userId; }
     public UUID getCampaignId() { return campaignId; }
     public String getCampaignName() { return campaignName; }
+    public UUID getRewardId() { return rewardId; }
+    public String getRewardName() { return rewardName; }
 }

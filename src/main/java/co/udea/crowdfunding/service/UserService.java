@@ -19,6 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -30,6 +31,8 @@ public class UserService {
 
     private static final String ROLE_CREATOR = "creator";
     private static final String CONTRIBUTION_TYPE = "contribution";
+    /** Tipo con el que HU-10 guardaba los aportes antes de unificarlo en minúsculas (como "recharge"). */
+    private static final String LEGACY_CONTRIBUTION_TYPE = "CONTRIBUTION";
 
     private final UserRepository userRepository;
     private final TransactionRepository transactionRepository;
@@ -132,7 +135,9 @@ public class UserService {
     }
 
     private List<CampaignSummary> buildSponsorCampaigns(UUID userId) {
-        List<Transaction> contributions = transactionRepository.findByUserIdAndType(userId, CONTRIBUTION_TYPE);
+        List<Transaction> contributions = new ArrayList<>(
+                transactionRepository.findByUserIdAndType(userId, CONTRIBUTION_TYPE));
+        contributions.addAll(transactionRepository.findByUserIdAndType(userId, LEGACY_CONTRIBUTION_TYPE));
 
         Map<UUID, BigDecimal> contributedByCampaign = contributions.stream()
                 .collect(Collectors.groupingBy(

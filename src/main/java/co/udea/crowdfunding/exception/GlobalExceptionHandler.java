@@ -52,6 +52,18 @@ public class GlobalExceptionHandler {
                 .body(new ApiError(ex.getMessage(), Map.of()));
     }
 
+    @ExceptionHandler(InvalidContributionException.class)
+    public ResponseEntity<ApiError> handleInvalidContribution(InvalidContributionException ex) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(new ApiError(ex.getMessage(), Map.of()));
+    }
+
+    @ExceptionHandler(ContributionProcessingException.class)
+    public ResponseEntity<ApiError> handleContributionProcessing(ContributionProcessingException ex) {
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(new ApiError(ex.getMessage(), Map.of()));
+    }
+
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<ApiError> handleUnreadableBody(HttpMessageNotReadableException ex) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)

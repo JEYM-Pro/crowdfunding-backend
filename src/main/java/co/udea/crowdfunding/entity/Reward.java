@@ -12,7 +12,7 @@ import java.util.UUID;
 
 /**
  * Nivel de recompensa de una campaña (HU-06). Se define al publicar y no se puede modificar después.
- * El descuento de stock al aportar le corresponde a HU-11.
+ * HU-11: al aportar eligiendo esta recompensa se descuenta una unidad de stock (puede llegar a 0 = agotada).
  */
 @Entity
 @Table(name = "rewards")
@@ -49,4 +49,12 @@ public class Reward {
     public String getDescription() { return description; }
     public BigDecimal getMinAmount() { return minAmount; }
     public int getStock() { return stock; }
+
+    /** Descuenta una unidad de stock (HU-11). Rechaza el intento si la recompensa ya está agotada. */
+    public void decreaseStock() {
+        if (stock <= 0) {
+            throw new IllegalStateException("La recompensa seleccionada está agotada.");
+        }
+        stock--;
+    }
 }

@@ -2,6 +2,9 @@ package co.udea.crowdfunding.controller;
 
 import co.udea.crowdfunding.config.UserPrincipal;
 import co.udea.crowdfunding.dto.CampaignResponse;
+import co.udea.crowdfunding.dto.ContributionConfirmationRequest;
+import co.udea.crowdfunding.dto.ContributionConfirmationResponse;
+import co.udea.crowdfunding.dto.ContributionRequest;
 import co.udea.crowdfunding.dto.CreateCampaignRequest;
 import co.udea.crowdfunding.dto.UpdateCampaignRequest;
 import co.udea.crowdfunding.dto.UpdateCampaignStatusRequest;
@@ -86,14 +89,27 @@ public class CampaignController {
     }
 
     @PostMapping("/{id}/contributions")
-    @Operation(summary = "Realizar un aporte a una campaña activa")
+    @Operation(summary = "HU-10: Realizar un aporte a una campaña activa (recompensa opcional, respuesta de texto)")
     public ResponseEntity<String> makeContribution(
-            @PathVariable java.util.UUID id,
-            @RequestBody co.udea.crowdfunding.dto.ContributionRequest request,
+            @PathVariable UUID id,
+            @RequestBody ContributionRequest request,
             @AuthenticationPrincipal UserPrincipal principal) {
-        
-        campaignService.makeContribution(id, request.getAmount(), principal.getId());
+
+        campaignService.makeContributionWithConfirmation(
+                id, request.getAmount(), request.getRewardId(), principal.getId());
         return ResponseEntity.ok("Aporte realizado exitosamente.");
+    }
+
+    @PostMapping("/{id}/contributions/confirm")
+    @Operation(summary = "HU-11/HU-12: Aportar con recompensa opcional y recibir el comprobante de la contribución")
+    public ResponseEntity<ContributionConfirmationResponse> confirmContribution(
+            @PathVariable UUID id,
+            @Valid @RequestBody ContributionConfirmationRequest request,
+            @AuthenticationPrincipal UserPrincipal principal) {
+
+        return ResponseEntity.status(HttpStatus.CREATED).body(
+                campaignService.makeContributionWithConfirmation(
+                        id, request.amount(), request.rewardId(), principal.getId()));
     }
 
 }
