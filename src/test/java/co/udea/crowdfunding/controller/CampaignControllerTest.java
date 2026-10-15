@@ -83,13 +83,13 @@ class CampaignControllerTest {
 
     @Test
     void listActive_returnsOkWithActiveCampaigns() {
-        when(campaignService.listActive()).thenReturn(List.of(response()));
+        when(campaignService.exploreActiveCampaigns(null, null, null)).thenReturn(List.of(response()));
 
-        ResponseEntity<List<CampaignResponse>> result = campaignController.listActive();
+        ResponseEntity<List<CampaignResponse>> result = campaignController.listActive(null, null, null);
 
         assertThat(result.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(result.getBody()).hasSize(1);
-        verify(campaignService).listActive();
+        verify(campaignService).exploreActiveCampaigns(null, null, null);
     }
 
     @Test

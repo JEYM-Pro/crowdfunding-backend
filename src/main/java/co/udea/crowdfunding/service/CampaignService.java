@@ -2,6 +2,7 @@ package co.udea.crowdfunding.service;
 
 import org.springframework.data.domain.Sort;
 import co.udea.crowdfunding.dto.CampaignResponse;
+import co.udea.crowdfunding.dto.ContributionConfirmationResponse;
 import co.udea.crowdfunding.dto.CreateCampaignRequest;
 import co.udea.crowdfunding.dto.RewardRequest;
 import co.udea.crowdfunding.dto.UpdateCampaignRequest;
@@ -10,15 +11,19 @@ import co.udea.crowdfunding.entity.CampaignStatus;
 import co.udea.crowdfunding.entity.CampaignStatusHistory;
 import co.udea.crowdfunding.entity.Category;
 import co.udea.crowdfunding.entity.Reward;
+import co.udea.crowdfunding.entity.Transaction;
 import co.udea.crowdfunding.entity.User;
 import co.udea.crowdfunding.exception.CampaignAccessDeniedException;
 import co.udea.crowdfunding.exception.CampaignNotEditableException;
 import co.udea.crowdfunding.exception.CampaignNotFoundException;
 import co.udea.crowdfunding.exception.InvalidCampaignException;
+import co.udea.crowdfunding.exception.InvalidContributionException;
 import co.udea.crowdfunding.repository.CampaignRepository;
 import co.udea.crowdfunding.repository.CampaignStatusHistoryRepository;
 import co.udea.crowdfunding.repository.CategoryRepository;
+import co.udea.crowdfunding.repository.TransactionRepository;
 import co.udea.crowdfunding.repository.UserRepository;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,7 +37,8 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 
 /**
- * Casos de uso de campañas: HU-06 (publicar) y HU-07 (editar campaña activa).
+ * Casos de uso de campañas: HU-06 (publicar), HU-07 (editar campaña activa), HU-10 (aportar),
+ * HU-11 (nivel de recompensa) y HU-12 (confirmación de contribución).
  */
 @Service
 @Transactional(readOnly = true)
@@ -44,6 +50,10 @@ public class CampaignService {
     static final String CATEGORY_NOT_FOUND_MESSAGE = "La categoría seleccionada no existe.";
     static final String NOT_ACTIVE_MESSAGE = "Solo se pueden editar campañas activas.";
     static final String REWARDS_LOCKED_MESSAGE = "La lista de recompensas no se puede modificar una vez publicada la campaña.";
+
+    static final String CONTRIBUTION_TYPE = "contribution";
+    static final String CONTRIBUTION_NOT_ACTIVE_MESSAGE = "No se pueden realizar aportes a una campaña que no está activa.";
+    static final String CONTRIBUTION_SUCCESS_MESSAGE = "Aporte realizado exitosamente.";
 
     private static final String ROLE_SPONSOR = "sponsor";
     private static final String ROLE_CREATOR = "creator";
@@ -290,46 +300,102 @@ public class CampaignService {
         return CampaignResponse.from(updatedCampaign, categoryName(updatedCampaign.getCategoryId()));
     }
 
-    @org.springframework.beans.factory.annotation.Autowired
-    private co.udea.crowdfunding.repository.TransactionRepository transactionRepository;
+    // ----------------------------------------------------------- HU-10/11/12
 
+    @Autowired
+    private TransactionRepository transactionRepository;
+
+    @Autowired
+    private ContributionEmailService contributionEmailService;
+
+    /**
+     * HU-11/HU-12: registra el aporte (con recompensa opcional) y envía el comprobante por correo.
+     * Si cualquier paso falla (validación, persistencia o correo) se lanza una excepción runtime y la
+     * transacción se revierte: saldo, recaudo, stock e historial quedan como estaban.
+     */
     @Transactional
-    public void makeContribution(UUID campaignId, java.math.BigDecimal amount, UUID userId) {
-        // 1. Validar que el monto sea mayor a cero
-        if (amount == null || amount.compareTo(java.math.BigDecimal.ZERO) <= 0) {
-            throw new IllegalArgumentException("El monto a aportar debe ser mayor a cero.");
+    public ContributionConfirmationResponse makeContributionWithConfirmation(UUID campaignId,
+                                                                             BigDecimal amount,
+                                                                             UUID rewardId,
+                                                                             UUID userId) {
+        // 1. Monto mayor que cero
+        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new InvalidContributionException("El monto a aportar debe ser mayor a cero.");
         }
 
-        // 2. Buscar la campaña y validar que esté activa
-        Campaign campaign = campaignRepository.findById(campaignId)
-                .orElseThrow(() -> new CampaignNotFoundException());
-        
-        if (campaign.getStatus() != CampaignStatus.ACTIVE) {
-            throw new IllegalStateException("No se pueden realizar aportes a una campaña que no está activa.");
+        // 2. La campaña existe y está activa (bloqueada para serializar aportes y consumo de stock)
+        Campaign campaign = campaignRepository.findByIdForUpdate(campaignId)
+                .orElseThrow(CampaignNotFoundException::new);
+        if (!campaign.isActive()) {
+            throw new CampaignNotEditableException(CONTRIBUTION_NOT_ACTIVE_MESSAGE);
         }
 
-        // 3. Buscar al usuario patrocinador
-        User sponsor = userRepository.findById(userId)
+        // Patrocinador bloqueado para proteger su saldo frente a solicitudes concurrentes
+        User sponsor = userRepository.findByIdForUpdate(userId)
                 .orElseThrow(() -> new IllegalArgumentException("Usuario no encontrado."));
 
-        // 4. Descontar saldo y sumar recaudo
-        sponsor.subtractBalance(amount);
-        campaign.addRaisedAmount(amount);
+        // 3, 4 y 5. Recompensa de la campaña, con stock y monto mínimo
+        Reward reward = rewardId == null ? null : findRewardOf(campaign, rewardId);
+        if (reward != null) {
+            if (reward.getStock() <= 0) {
+                throw new InvalidContributionException("La recompensa seleccionada está agotada.");
+            }
+            if (amount.compareTo(reward.getMinAmount()) < 0) {
+                throw new InvalidContributionException(
+                        "El aporte debe ser igual o mayor a " + reward.getMinAmount().toPlainString()
+                                + " para elegir la recompensa \"" + reward.getName() + "\".");
+            }
+        }
 
-        // 5. Guardar los cambios
+        // 6. Saldo suficiente
+        if (sponsor.getBalance().compareTo(amount) < 0) {
+            throw new InvalidContributionException("Saldo insuficiente para realizar el aporte.");
+        }
+
+        // Efectos: saldo, histórico aportado, recaudo y stock
+        Instant now = clock.instant();
+        sponsor.subtractBalance(amount);
+        sponsor.setHistoric(sponsor.getHistoric().add(amount));
+        sponsor.setUpdatedAt(now);
+        campaign.addRaisedAmount(amount);
+        if (reward != null) {
+            reward.decreaseStock();
+        }
+
         userRepository.save(sponsor);
         campaignRepository.save(campaign);
 
-        // 6. Registrar la transacción en el historial con los 6 parámetros correctos
-        co.udea.crowdfunding.entity.Transaction transaction = new co.udea.crowdfunding.entity.Transaction(
-            amount, 
-            clock.instant(), 
-            "CONTRIBUTION", 
-            sponsor.getId(), 
-            campaign.getId(), 
-            campaign.getTitle()
-        );
-        transactionRepository.save(transaction);
+        Transaction transaction = transactionRepository.saveAndFlush(new Transaction(
+                amount,
+                now,
+                CONTRIBUTION_TYPE,
+                sponsor.getId(),
+                campaign.getId(),
+                campaign.getTitle(),
+                reward == null ? null : reward.getId(),
+                reward == null ? null : reward.getName()));
+
+        ContributionConfirmationResponse receipt = new ContributionConfirmationResponse(
+                transaction.getId(),
+                campaign.getId(),
+                campaign.getTitle(),
+                amount,
+                transaction.getRewardId(),
+                transaction.getRewardName(),
+                sponsor.getBalance(),
+                transaction.getDate(),
+                CONTRIBUTION_SUCCESS_MESSAGE);
+
+        contributionEmailService.sendConfirmation(sponsor.getEmail(), receipt);
+        return receipt;
+    }
+
+    private Reward findRewardOf(Campaign campaign, UUID rewardId) {
+        return campaign.getRewards().stream()
+                .filter(reward -> rewardId.equals(reward.getId()))
+                .findFirst()
+                .orElseThrow(() -> new InvalidContributionException(
+                        "La recompensa seleccionada no pertenece a esta campaña."));
     }
 
 }

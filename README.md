@@ -413,3 +413,38 @@ categoría obligatoria (Tecnología, Agricultura, Arte y cultura, Educación, Me
 hasta 6 recompensas opcionales, cada una con monto mínimo y unidades disponibles mayores a cero, que quedan fijas al publicar. Errores: 400 (validación), 403 (no es el creador), 404 (no existe), 409 (campaña no activa o con aportes).
 
 Pruebas y cobertura: `mvn test` genera el reporte JaCoCo en `target/site/jacoco/index.html`.
+
+---
+
+## Aportes con recompensa y comprobante (HU-10, HU-11 y HU-12)
+
+**Antes de levantar el backend**
+
+1. Ejecutar en Supabase (SQL Editor) `src/main/resources/db/migration/V4__contributions_rewards_and_receipts.sql`
+   (permite `stock = 0` en `rewards` y agrega `reward_id` / `reward_name` a `transactions`). Es idempotente.
+2. Configurar el correo por variables de entorno (no se guardan credenciales en el código):
+
+| Variable | Uso | Ejemplo |
+|---|---|---|
+| `SMTP_HOST` | Servidor SMTP | `smtp.gmail.com` |
+| `SMTP_PORT` | Puerto | `587` |
+| `SMTP_USERNAME` | Cuenta SMTP | cuenta remitente |
+| `SMTP_PASSWORD` | Contraseña o clave de aplicación | no subir al repositorio |
+| `SMTP_AUTH` | Activar autenticación | `true` |
+| `SMTP_STARTTLS` | Activar STARTTLS | `true` |
+| `SMTP_FROM` | Dirección remitente autorizada | la del proveedor |
+
+Si `SMTP_HOST` o `SMTP_FROM` no están configurados, o el proveedor rechaza el envío, **el aporte no se confirma** (error 500 y todo se revierte).
+
+| Método | Endpoint | Descripción |
+|---|---|---|
+| `POST` | `/api/campaigns/{id}/contributions/confirm` | HU-11/HU-12: aporta con `rewardId` opcional y devuelve el comprobante (201). |
+| `POST` | `/api/campaigns/{id}/contributions` | HU-10: misma ruta y respuesta de texto; acepta `rewardId` opcional y comparte el mismo procesamiento (incluido el correo). |
+
+Body: `{ "amount": 60000, "rewardId": "uuid-opcional" }`. El `rewardId` debe ser uno de los `rewards` de `GET /api/campaigns/{id}`.
+
+Validaciones (en este orden): monto > 0; campaña existente y activa; recompensa de esa campaña; stock > 0
+(con stock `0` el detalle de campaña lo devuelve como agotado); monto >= `minAmount` de la recompensa; saldo suficiente.
+Errores: 400 (regla de negocio o validación), 404 (campaña inexistente), 409 (campaña no activa), 500 (correo no disponible).
+Al confirmar se descuenta el saldo, se suma al total histórico aportado (`historic`) y al recaudo de la campaña, se reduce el stock y se guarda la transacción
+(`type = contribution`, con `rewardId` y `rewardName`). La campaña y el patrocinador se bloquean (`PESSIMISTIC_WRITE`) para evitar aportes simultáneos sobre la última unidad o el mismo saldo.

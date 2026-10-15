@@ -2,9 +2,14 @@ package co.udea.crowdfunding.repository;
 
 import co.udea.crowdfunding.entity.Campaign;
 import co.udea.crowdfunding.entity.CampaignStatus;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 public interface CampaignRepository extends JpaRepository<Campaign, UUID> {
@@ -12,6 +17,11 @@ public interface CampaignRepository extends JpaRepository<Campaign, UUID> {
     List<Campaign> findByUserId(UUID userId);
 
     long countByUserId(UUID userId);
+
+    /** HU-11: bloquea la campaña para serializar aportes y no consumir dos veces la última unidad de una recompensa. */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT c FROM Campaign c WHERE c.id = :campaignId")
+    Optional<Campaign> findByIdForUpdate(@Param("campaignId") UUID campaignId);
 
     List<Campaign> findByStatusOrderByCreatedAtDesc(CampaignStatus status);
 
