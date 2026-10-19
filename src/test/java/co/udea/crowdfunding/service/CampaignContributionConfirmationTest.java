@@ -74,8 +74,7 @@ class CampaignContributionConfirmationTest {
     @BeforeEach
     void setUp() {
         service = new CampaignService(campaignRepository, categoryRepository, statusHistoryRepository,
-                userRepository, Clock.fixed(NOW, ZoneOffset.UTC));
-        ReflectionTestUtils.setField(service, "transactionRepository", transactionRepository);
+                userRepository, transactionRepository, Clock.fixed(NOW, ZoneOffset.UTC));
         ReflectionTestUtils.setField(service, "contributionEmailService", contributionEmailService);
 
         reward = new Reward("Camiseta oficial", "Camiseta del proyecto", new BigDecimal("50000"), 3);

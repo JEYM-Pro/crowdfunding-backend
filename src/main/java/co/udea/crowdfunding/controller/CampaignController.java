@@ -67,6 +67,14 @@ public class CampaignController {
         return ResponseEntity.ok(campaignService.getById(id));
     }
 
+    @GetMapping("/mine")
+    @Operation(summary = "Listar campañas administradas por el usuario autenticado")
+    public ResponseEntity<List<CampaignResponse>> listManaged(
+            @AuthenticationPrincipal UserPrincipal principal) {
+        boolean admin = "admin".equalsIgnoreCase(principal.getRole());
+        return ResponseEntity.ok(campaignService.listManaged(principal.getId(), admin));
+    }
+
     @GetMapping
     @Operation(summary = "Listado público de campañas activas (con filtros)")
     public ResponseEntity<List<CampaignResponse>> listActive(

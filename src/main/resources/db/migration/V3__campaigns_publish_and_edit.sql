@@ -36,7 +36,7 @@ ALTER TABLE campaigns ALTER COLUMN category_id SET NOT NULL;
 CREATE TABLE IF NOT EXISTS campaign_images (
     campaign_id UUID         NOT NULL REFERENCES campaigns (id) ON DELETE CASCADE,
     image_order INT          NOT NULL,
-    url         VARCHAR(500) NOT NULL,
+    url         TEXT         NOT NULL,
     PRIMARY KEY (campaign_id, image_order)
 );
 

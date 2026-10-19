@@ -32,13 +32,12 @@ public record CreateCampaignRequest(
         @NotNull(message = "La fecha límite es obligatoria.")
         Instant deadline,
 
-        @NotNull(message = "Selecciona una categoría.")
         UUID categoryId,
 
         @Size(max = 4, message = "Una campaña puede tener máximo 4 imágenes")
         List<@NotBlank(message = "La URL de la imagen no puede estar vacía")
-             @Size(max = 500, message = "La URL de la imagen no puede superar 500 caracteres")
-             @Pattern(regexp = "^https?://.+", message = "Cada imagen debe ser una URL válida (http o https)")
+             @Size(max = 2800000, message = "La imagen no puede superar el tamaño máximo permitido")
+             @Pattern(regexp = "^(https?://|data:).+", message = "Cada imagen debe ser una URL válida (http, https o data)")
              String> images,
 
         @Size(max = 6, message = "Una campaña puede tener máximo 6 recompensas")

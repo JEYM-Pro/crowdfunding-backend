@@ -99,7 +99,28 @@ class CampaignRequestValidationTest {
                 BigDecimal.TEN, DEADLINE, CATEGORY_ID, List.of("ftp://servidor/imagen.png"), null);
 
         assertThat(messages(validator.validate(request)))
-                .containsExactly("Cada imagen debe ser una URL válida (http o https)");
+                .containsExactly("Cada imagen debe ser una URL válida (http, https o data)");
+    }
+
+    @Test
+    void create_withUploadedImageDataUrlWithinLimit_isAccepted() {
+        String prefix = "data:image/png;base64,";
+        String image = prefix + "A".repeat(2_800_000 - prefix.length());
+        CreateCampaignRequest request = new CreateCampaignRequest("Título", "Descripción",
+                BigDecimal.TEN, DEADLINE, CATEGORY_ID, List.of(image), null);
+
+        assertThat(validator.validate(request)).isEmpty();
+    }
+
+    @Test
+    void create_withUploadedImageDataUrlOverLimit_isRejected() {
+        String prefix = "data:image/png;base64,";
+        String image = prefix + "A".repeat(2_800_001 - prefix.length());
+        CreateCampaignRequest request = new CreateCampaignRequest("Título", "Descripción",
+                BigDecimal.TEN, DEADLINE, CATEGORY_ID, List.of(image), null);
+
+        assertThat(messages(validator.validate(request)))
+                .containsExactly("La imagen no puede superar el tamaño máximo permitido");
     }
 
     @Test
@@ -144,7 +165,7 @@ class CampaignRequestValidationTest {
                 List.of("no-es-una-url"), null, null, null, null);
 
         assertThat(messages(validator.validate(request)))
-                .containsExactly("Cada imagen debe ser una URL válida (http o https)");
+                .containsExactly("Cada imagen debe ser una URL válida (http, https o data)");
     }
 
     // ---------------------------- Recompensas (HU-06) ----------------------------

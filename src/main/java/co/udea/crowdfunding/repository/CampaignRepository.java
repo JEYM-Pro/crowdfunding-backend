@@ -16,6 +16,8 @@ public interface CampaignRepository extends JpaRepository<Campaign, UUID> {
 
     List<Campaign> findByUserId(UUID userId);
 
+    List<Campaign> findByUserIdOrderByCreatedAtDesc(UUID userId);
+
     long countByUserId(UUID userId);
 
     /** HU-11: bloquea la campaña para serializar aportes y no consumir dos veces la última unidad de una recompensa. */

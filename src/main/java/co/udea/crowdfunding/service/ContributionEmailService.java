@@ -7,6 +7,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.MailException;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.text.DecimalFormat;
@@ -21,6 +23,8 @@ import java.util.Locale;
  */
 @Service
 public class ContributionEmailService {
+
+    private static final Logger logger = LoggerFactory.getLogger(ContributionEmailService.class);
 
     static final String NOT_CONFIGURED_MESSAGE =
             "El servicio de correo no está configurado, no fue posible confirmar el aporte.";
@@ -46,6 +50,8 @@ public class ContributionEmailService {
     public void sendConfirmation(String to, ContributionConfirmationResponse receipt) {
         JavaMailSender sender = mailSenderProvider.getIfAvailable();
         if (sender == null || isBlank(smtpHost) || isBlank(from)) {
+            logger.error("No se puede confirmar el aporte por correo: senderConfigured={}, smtpHostConfigured={}, fromConfigured={}",
+                    sender != null, !isBlank(smtpHost), !isBlank(from));
             throw new ContributionProcessingException(NOT_CONFIGURED_MESSAGE);
         }
 
@@ -58,6 +64,7 @@ public class ContributionEmailService {
         try {
             sender.send(message);
         } catch (MailException ex) {
+            logger.error("Falló el envío SMTP del comprobante de aporte.", ex);
             throw new ContributionProcessingException(SEND_FAILED_MESSAGE, ex);
         }
     }
