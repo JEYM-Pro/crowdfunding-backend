@@ -27,8 +27,8 @@ public record UpdateCampaignRequest(
 
         @Size(max = 4, message = "Una campaña puede tener máximo 4 imágenes")
         List<@NotBlank(message = "La URL de la imagen no puede estar vacía")
-             @Size(max = 500, message = "La URL de la imagen no puede superar 500 caracteres")
-             @Pattern(regexp = "^https?://.+", message = "Cada imagen debe ser una URL válida (http o https)")
+             @Size(max = 2000000, message = "La URL de la imagen no puede superar 2 000 000 caracteres")
+             @Pattern(regexp = "^(https?://|data:).+", message = "Cada imagen debe ser una URL válida (http, https o data)")
              String> images,
 
         @Positive(message = "La meta de financiación debe ser mayor a cero.")

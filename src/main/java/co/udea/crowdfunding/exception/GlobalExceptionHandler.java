@@ -1,5 +1,6 @@
 package co.udea.crowdfunding.exception;
 
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -78,5 +79,14 @@ public class GlobalExceptionHandler {
                 : HttpStatus.BAD_REQUEST;
         return ResponseEntity.status(status)
                 .body(new ApiError(message, Map.of()));
+    }
+
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<ApiError> handleDataIntegrityViolation(DataIntegrityViolationException ex) {
+        String message = ex.getMostSpecificCause() != null
+                ? ex.getMostSpecificCause().getMessage()
+                : ex.getMessage();
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(new ApiError("Error de integridad de datos: " + message, Map.of()));
     }
 }

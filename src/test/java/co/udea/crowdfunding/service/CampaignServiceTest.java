@@ -17,6 +17,7 @@ import co.udea.crowdfunding.repository.CampaignRepository;
 import co.udea.crowdfunding.repository.CampaignStatusHistoryRepository;
 import co.udea.crowdfunding.repository.CategoryRepository;
 import co.udea.crowdfunding.repository.UserRepository;
+import co.udea.crowdfunding.repository.TransactionRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -26,6 +27,8 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
@@ -45,6 +48,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
+@MockitoSettings(strictness = Strictness.LENIENT)
 class CampaignServiceTest {
 
     private static final Instant NOW = Instant.parse("2026-10-09T12:00:00Z");
@@ -62,6 +66,8 @@ class CampaignServiceTest {
     private CampaignStatusHistoryRepository statusHistoryRepository;
     @Mock
     private UserRepository userRepository;
+    @Mock
+    private TransactionRepository transactionRepository;
 
     private CampaignService service;
     private Category category;
@@ -69,9 +75,10 @@ class CampaignServiceTest {
     @BeforeEach
     void setUp() {
         service = new CampaignService(campaignRepository, categoryRepository, statusHistoryRepository,
-                userRepository, Clock.fixed(NOW, ZoneOffset.UTC));
+                userRepository, transactionRepository, Clock.fixed(NOW, ZoneOffset.UTC));
         category = new Category("Tecnología");
         ReflectionTestUtils.setField(category, "id", CATEGORY_ID);
+        stubUser("creator");
     }
 
     // =====================================================================
@@ -463,6 +470,22 @@ class CampaignServiceTest {
     }
 
     @Test
+    void listManaged_includesPausedCampaignsForTheirCreator() {
+        Campaign campaign = newCampaign(false);
+        campaign.setStatus(CampaignStatus.PAUSED);
+        User creator = stubUser("creator");
+        ReflectionTestUtils.setField(creator, "id", USER_ID);
+        when(campaignRepository.findByUserIdOrderByCreatedAtDesc(USER_ID)).thenReturn(List.of(campaign));
+        when(categoryRepository.findAllById(any())).thenReturn(List.of(category));
+        when(userRepository.findAllById(any())).thenReturn(List.of(creator));
+
+        List<CampaignResponse> campaigns = service.listManaged(USER_ID, false);
+
+        assertThat(campaigns).hasSize(1);
+        assertThat(campaigns.getFirst().status()).isEqualTo(CampaignStatus.PAUSED);
+    }
+
+    @Test
     void getById_ofUnknownCampaign_throwsNotFound() {
         when(campaignRepository.findById(CAMPAIGN_ID)).thenReturn(Optional.empty());
 
@@ -476,6 +499,9 @@ class CampaignServiceTest {
         when(campaignRepository.findByStatusOrderByCreatedAtDesc(CampaignStatus.ACTIVE))
                 .thenReturn(List.of(first, second));
         when(categoryRepository.findAllById(List.of(CATEGORY_ID))).thenReturn(List.of(category));
+        User creatorUser = new User("Ana Pérez", "ana@correo.com", "hash");
+        ReflectionTestUtils.setField(creatorUser, "id", USER_ID);
+        when(userRepository.findAllById(List.of(USER_ID))).thenReturn(List.of(creatorUser));
 
         List<CampaignResponse> result = service.listActive();
 

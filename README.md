@@ -399,12 +399,17 @@ MIT — Uso académico CodeFactory UdeA.
 **Antes de levantar el backend** ejecutar en Supabase (SQL Editor) el script
 `src/main/resources/db/migration/V3__campaigns_publish_and_edit.sql`
 (`ddl-auto=validate` no crea tablas ni columnas). Es idempotente.
+Ejecutar también, después de V3, `src/main/resources/db/migration/V5__campaign_status_constraint.sql`
+para que la restricción de estados de la base de datos permita los estados usados por el backend.
+Es idempotente. Ejecutar asimismo `src/main/resources/db/migration/V6__campaign_image_url_to_text.sql`
+para permitir guardar las imágenes subidas como data URLs de hasta 2 MB.
 
 | Método | Endpoint | Descripción |
 |---|---|---|
 | `POST` | `/api/campaigns` | HU-06: publica una campaña (queda `ACTIVE`). Devuelve 201. |
 | `PUT` | `/api/campaigns/{id}` | HU-07: edita título, descripción, categoría e imágenes de una campaña activa. Meta y fecha solo si `raised = 0`. Las recompensas no se pueden modificar (409). |
 | `GET` | `/api/campaigns` | Listado público de campañas activas. |
+| `GET` | `/api/campaigns/mine` | Campañas del creador autenticado (incluye pausadas y cerradas); para administradores, todas las campañas. |
 | `GET` | `/api/campaigns/{id}` | Detalle de una campaña. |
 | `GET` | `/api/categories` | Categorías para el selector del formulario. |
 

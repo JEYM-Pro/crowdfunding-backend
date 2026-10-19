@@ -93,6 +93,28 @@ class CampaignControllerTest {
     }
 
     @Test
+    void listManaged_returnsCampaignsForAuthenticatedOwner() {
+        when(campaignService.listManaged(USER_ID, false)).thenReturn(List.of(response()));
+
+        ResponseEntity<List<CampaignResponse>> result = campaignController.listManaged(principal);
+
+        assertThat(result.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(result.getBody()).hasSize(1);
+        verify(campaignService).listManaged(USER_ID, false);
+    }
+
+    @Test
+    void listManaged_requestsAllCampaignsForAdmin() {
+        UserPrincipal admin = new UserPrincipal(USER_ID, "admin@correo.com", "admin");
+        when(campaignService.listManaged(USER_ID, true)).thenReturn(List.of(response()));
+
+        ResponseEntity<List<CampaignResponse>> result = campaignController.listManaged(admin);
+
+        assertThat(result.getStatusCode()).isEqualTo(HttpStatus.OK);
+        verify(campaignService).listManaged(USER_ID, true);
+    }
+
+    @Test
     void categories_areListedAlphabeticallyAsIdAndName() {
         Category category = new Category("Educación");
         ReflectionTestUtils.setField(category, "id", CATEGORY_ID);
@@ -107,6 +129,7 @@ class CampaignControllerTest {
     private CampaignResponse response() {
         return new CampaignResponse(CAMPAIGN_ID, "Título", "Descripción", new BigDecimal("1000000"),
                 BigDecimal.ZERO, DEADLINE, CampaignStatus.ACTIVE, CATEGORY_ID, "Tecnología", List.of(),
-                USER_ID, false, Instant.parse("2026-10-09T12:00:00Z"), null, List.of());
+                USER_ID, "Ana Pérez", "ana@correo.com", false, List.of(), 0,
+                Instant.parse("2026-10-09T12:00:00Z"), null, List.of());
     }
 }

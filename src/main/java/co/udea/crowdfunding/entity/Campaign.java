@@ -61,7 +61,7 @@ public class Campaign {
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "campaign_images", joinColumns = @JoinColumn(name = "campaign_id"))
     @OrderColumn(name = "image_order")
-    @Column(name = "url", nullable = false, length = 500)
+    @Column(name = "url", nullable = false, columnDefinition = "TEXT")
     private List<String> images = new ArrayList<>();
 
     /** Recompensas opcionales (máx. 6). Se fijan al publicar y no cambian después. */
