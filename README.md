@@ -1,455 +1,404 @@
 # Crowdfunding Platform Backend
 
-Backend REST para la plataforma de Crowdfunding (CodeFactory UdeA), construido con Spring Boot, PostgreSQL (Supabase) y seguridad JWT.
+API REST de la plataforma de Crowdfunding (CodeFactory UdeA), construida con Spring Boot 4, PostgreSQL (Supabase) y seguridad JWT. Expone autenticación, billetera, campañas, aportes con recompensa y comprobante por correo, y administración de usuarios.
+
+- **API en producción:** https://crowdfunding-backend-udea.duckdns.org
+- **Swagger UI (producción):** https://crowdfunding-backend-udea.duckdns.org/swagger-ui/index.html
+- **Frontend:** [juanbah0s/Crowdfunding](https://github.com/juanbah0s/Crowdfunding) · app en https://main.d1w138aotlfajn.amplifyapp.com
 
 ---
 
-## Estado Actual
+## Equipo
 
-Este repositorio ya incluye:
-
-- Autenticación JWT stateless.
-- Registro de usuarios (creadores y patrocinadores).
-- Login con emisión de token.
-- Gestión de perfil de usuario autenticado.
-- Recarga de saldo (wallet).
-- Consulta de balance con histórico y campañas asociadas.
-- Manejo global de errores con formato estándar.
-- Auditoría JPA (`created_at`, `updated_at`).
-- Swagger/OpenAPI con Authorize para probar endpoints protegidos.
+- Marino de Jesús Gómez Salazar
+- Juan Esteban Yepes Martinez
+- Juan Joel Cortes Montes
+- Cristian Mateo Sepulveda Ochoa
+- Yeison Alexis Pulgarin Velez
 
 ---
 
-## Stack Técnico
+## Contenido
+
+- [Estado actual](#estado-actual)
+- [Stack técnico](#stack-técnico)
+- [Arquitectura](#arquitectura)
+- [Estructura del proyecto](#estructura-del-proyecto)
+- [Requisitos previos](#requisitos-previos)
+- [Configuración](#configuración)
+- [Base de datos y migraciones](#base-de-datos-y-migraciones)
+- [Ejecutar en local](#ejecutar-en-local)
+- [Seguridad y roles](#seguridad-y-roles)
+- [Endpoints](#endpoints)
+- [Reglas de negocio](#reglas-de-negocio)
+- [Formato de errores](#formato-de-errores)
+- [Swagger / OpenAPI](#swagger--openapi)
+- [Pruebas y cobertura](#pruebas-y-cobertura)
+- [Despliegue en producción](#despliegue-en-producción)
+- [Limitaciones conocidas](#limitaciones-conocidas)
+- [Roadmap](#roadmap)
+
+---
+
+## Estado actual
+
+| Módulo | Historias de usuario | Estado |
+|---|---|---|
+| Registro, login y perfil | HU-01, HU-02, HU-03 | ✅ |
+| Billetera: recarga, saldo e historial | HU-04, HU-05 | ✅ |
+| Publicar y editar campañas | HU-06, HU-07 | ✅ |
+| Pausar, cerrar y reactivar campañas | HU-08 | ✅ |
+| Explorar campañas: búsqueda, categoría y orden | HU-09 | ✅ |
+| Aportes, recompensas con stock y comprobante por correo | HU-10, HU-11, HU-12 | ✅ |
+| Administración de usuarios | HU-21 | ✅ |
+| Categorías | — | ✅ |
+
+---
+
+## Stack técnico
 
 - **Java** 21
-- **Spring Boot** 4.1.1
-- Spring Web MVC, Spring Data JPA, Spring Security, Spring Validation
+- **Spring Boot** 4.1.1: Web MVC, Data JPA, Security, Validation, Mail
 - **JWT** (jjwt 0.12.5)
-- **PostgreSQL** (Supabase)
-- **Springdoc OpenAPI** (Swagger UI) 2.8.5
-- **Maven Wrapper**
+- **PostgreSQL** en Supabase (conexión por *pooler*)
+- **Springdoc OpenAPI** 2.8.5 (Swagger UI)
+- **JUnit 5 + Mockito** para pruebas y **JaCoCo** para cobertura
+- **Maven Wrapper** (`mvnw`)
 
 ---
 
-## Estructura Principal
+## Arquitectura
+
+El backend sigue una **arquitectura por capas**. Cada capa solo llama a la de abajo:
+
+```
+Controladores REST  (controller)   → reciben HTTP, validan DTOs, devuelven JSON
+        ↓
+Servicios           (service)      → reglas de negocio y casos de uso
+        ↓
+Repositorios JPA    (repository)   → acceso a datos (interfaces Spring Data)
+        ↓
+PostgreSQL (Supabase)
+```
+
+La seguridad es transversal: `JwtAuthenticationFilter` valida el token antes de que la petición llegue a los controladores.
+
+Los diagramas de clases y C4 (contexto, contenedores y componentes) se entregan aparte, en la documentación del proyecto.
+
+---
+
+## Estructura del proyecto
 
 ```
 src/main/java/co/udea/crowdfunding
-├── config/          # Security, JWT, OpenAPI, CORS
-├── controller/      # AuthController, UserController
-├── dto/             # Request/Response records (contratos API)
-├── entity/          # User, Campaign, Transaction (JPA)
-├── exception/       # ApiError, EmailAlreadyExistsException, GlobalExceptionHandler
-├── repository/      # Spring Data JPA repositories
-├── service/         # AuthService, UserService (lógica de negocio)
+├── config/       # SecurityConfig, JwtUtil, JwtAuthenticationFilter, UserPrincipal, OpenApiConfig, ClockConfig
+├── controller/   # AuthController, UserController, CampaignController, CategoryController, AdminController
+├── dto/          # Records de petición y respuesta (contratos de la API)
+├── entity/       # User, Campaign, CampaignStatus, CampaignStatusHistory, Category, Reward, Transaction
+├── exception/    # Excepciones del dominio, ApiError y GlobalExceptionHandler
+├── repository/   # Repositorios Spring Data JPA (uno por entidad)
+├── service/      # AuthService, UserService, CampaignService, AdminUserService, ContributionEmailService
 └── CrowdfundingApplication.java
 
 src/main/resources
-└── application.properties
+├── application.properties
+└── db/migration/ # Scripts SQL V2 a V6 (se ejecutan a mano en Supabase)
+
+src/test/java/co/udea/crowdfunding   # Pruebas de entidades, servicios, DTOs, controladores y errores
 ```
 
 ---
 
-## Requisitos Previos
+## Requisitos previos
 
 - **JDK 21**
-- **Maven** (opcional, se recomienda usar `mvnw`)
-- **PostgreSQL accesible** (actualmente configurado para Supabase)
+- **Maven** (opcional, el proyecto incluye `mvnw`)
+- Acceso a una base de datos **PostgreSQL** (el proyecto usa Supabase)
+- Una cuenta **SMTP** para enviar los comprobantes de aporte (por ejemplo, Gmail con contraseña de aplicación)
 
 ---
 
-## Variables y Configuración
+## Configuración
 
-La aplicación requiere al menos esta variable de entorno:
+La configuración está en `src/main/resources/application.properties`.
 
-```bash
-JWT_SECRET_KEY="clave-base64-para-firmar-jwt"
-```
+| Propiedad / variable | Uso | Valor por defecto |
+|---|---|---|
+| `SERVER_PORT` | Puerto HTTP | `8081` (en producción se usa `8080`) |
+| `spring.datasource.*` | Conexión a PostgreSQL (Supabase) | Definida en el archivo |
+| `jwt.secret`, `jwt.expiration` | Firma y duración del token (24 h) | Definidos en el archivo |
+| `SMTP_HOST` | Servidor SMTP | `smtp.gmail.com` |
+| `SMTP_PORT` | Puerto SMTP | `587` |
+| `SMTP_USERNAME` | Cuenta SMTP | — |
+| `SMTP_PASSWORD` | Contraseña o clave de aplicación | — (nunca subirla al repositorio) |
+| `SMTP_AUTH` / `SMTP_STARTTLS` | Autenticación y TLS | `true` / `true` |
+| `SMTP_FROM` | Dirección remitente | — |
 
-Ejemplo en PowerShell:
-```powershell
-$env:JWT_SECRET_KEY="TU_CLAVE_BASE64_AQUI"
-```
+Spring Boot permite sobreescribir cualquier propiedad con una variable de entorno, por ejemplo `SPRING_DATASOURCE_PASSWORD` o `JWT_SECRET`.
 
-En Linux/macOS:
-```bash
-export JWT_SECRET_KEY="TU_CLAVE_BASE64_AQUI"
-```
+> ⚠️ **Sin correo configurado no hay aportes.** Si `SMTP_HOST` o `SMTP_FROM` faltan, o el proveedor rechaza el envío, el aporte se revierte y la API responde 500.
 
-**Notas:**
-
-- La conexión a BD está definida en `application.properties` para entorno de desarrollo.
-- Para despliegue real, se recomienda sobreescribir credenciales por variables de entorno:
-  - `SPRING_DATASOURCE_URL`
-  - `SPRING_DATASOURCE_USERNAME`
-  - `SPRING_DATASOURCE_PASSWORD`
+> ⚠️ **Pendiente de seguridad:** la contraseña de la base de datos y el secreto JWT todavía están escritos en `application.properties`. Ver [Limitaciones conocidas](#limitaciones-conocidas).
 
 ---
 
-## Ejecutar Proyecto
+## Base de datos y migraciones
 
-### Windows (PowerShell)
+- **Motor:** PostgreSQL en Supabase. **ORM:** Spring Data JPA / Hibernate.
+- `spring.jpa.hibernate.ddl-auto=validate`: Hibernate **no crea ni modifica tablas**, solo verifica que el esquema coincida. Por eso hay que ejecutar los scripts a mano.
 
-```powershell
-$env:JWT_SECRET_KEY="TU_CLAVE_BASE64_AQUI"
-.\mvnw.cmd spring-boot:run
-```
+**Tablas:** `users`, `campaigns`, `campaign_images`, `rewards`, `categories`, `transactions`, `campaign_status_history`.
 
-### Linux/macOS
+**Scripts** (en `src/main/resources/db/migration/`; todos son idempotentes). Ejecutarlos en orden en el SQL Editor de Supabase:
+
+| Script | Qué hace |
+|---|---|
+| `V2__add_user_status.sql` | Agrega el estado del usuario (`ACTIVE` / `INACTIVE`) |
+| `V3__campaigns_publish_and_edit.sql` | Tablas y columnas de campañas, imágenes, recompensas y categorías |
+| `V4__contributions_rewards_and_receipts.sql` | Permite `stock = 0` y agrega `reward_id` / `reward_name` a `transactions` |
+| `V5__campaign_status_constraint.sql` | Restricción de estados de campaña (`ACTIVE`, `PAUSED`, `CLOSED`, `FINISHED`) |
+| `V6__campaign_image_url_to_text.sql` | Permite guardar imágenes como *data URL* de hasta 2 MB |
+
+---
+
+## Ejecutar en local
+
+**Linux / macOS**
 
 ```bash
-export JWT_SECRET_KEY="TU_CLAVE_BASE64_AQUI"
+export SMTP_USERNAME="tu_correo@gmail.com"
+export SMTP_PASSWORD="tu_clave_de_aplicacion"
+export SMTP_FROM="tu_correo@gmail.com"
 ./mvnw spring-boot:run
 ```
 
-La API queda disponible en:
+**Windows (PowerShell)**
 
-- **Base URL:** `http://localhost:8081`
-- **Swagger UI:** `http://localhost:8081/swagger-ui.html`
-- **OpenAPI JSON:** `http://localhost:8081/v3/api-docs`
-
----
-
-## Seguridad
-
-### Endpoints públicos
-
-| Método | Ruta | Descripción |
-|--------|------|-------------|
-| POST | `/api/auth/register` | Registrar nuevo usuario |
-| POST | `/api/auth/login` | Iniciar sesión, retorna JWT Bearer |
-
-### Endpoints protegidos (requieren JWT)
-
-| Método | Ruta | Descripción |
-|--------|------|-------------|
-| PUT | `/api/users/profile` | Actualizar datos personales |
-| POST | `/api/users/recharge` | Recargar saldo (wallet) |
-| GET | `/api/users/balance` | Consultar balance, histórico y campañas |
-
-### Roles
-
-- `sponsor` (patrocinador) - rol por defecto
-- `creator` (creador de campañas)
-
-### Autenticación
-
-El sistema usa JWT stateless. El token se obtiene en `POST /api/auth/login` y debe enviarse como **Bearer token** en el header `Authorization` de cada request protegido:
-
-```http
-Authorization: Bearer <token>
+```powershell
+$env:SMTP_USERNAME="tu_correo@gmail.com"
+$env:SMTP_PASSWORD="tu_clave_de_aplicacion"
+$env:SMTP_FROM="tu_correo@gmail.com"
+.\mvnw.cmd spring-boot:run
 ```
 
-El filtro `JwtAuthenticationFilter` valida el token en cada petición y popula el `SecurityContext` con el `UserPrincipal` (id, email, role).
+La API queda en `http://localhost:8081` y Swagger en `http://localhost:8081/swagger-ui.html`.
 
----
-
-## Base de Datos
-
-- **Motor:** PostgreSQL en Supabase (serverless)
-- **ORM:** Spring Data JPA / Hibernate
-- **Tablas principales:**
-  - `users` — usuarios (creadores y patrocinadores)
-  - `campaigns` — campañas de crowdfunding
-  - `transactions` — movimientos (recargas, aportes, retiros)
-
-La propiedad `spring.jpa.hibernate.ddl-auto=validate` evita cambios automáticos de esquema. Para producción se recomienda usar **Flyway** o **Liquibase** (pendiente).
-
----
-
-## Endpoints Implementados
-
-### 1) Registro de usuario
-
-```http
-POST /api/auth/register
-Content-Type: application/json
-```
-
-**Request:**
-```json
-{
-  "name": "Juan Pérez",
-  "email": "juan@email.com",
-  "password": "ClaveSegura123"
-}
-```
-
-**Response (201 Created):**
-```json
-{
-  "id": "uuid",
-  "name": "Juan Pérez",
-  "email": "juan@email.com",
-  "message": "Cuenta creada correctamente"
-}
-```
-
-**Validaciones:**
-- Email único (409 Conflict si ya existe)
-- Campos obligatorios (400 Bad Request)
-
----
-
-### 2) Login
-
-```http
-POST /api/auth/login
-Content-Type: application/json
-```
-
-**Request:**
-```json
-{
-  "email": "juan@email.com",
-  "password": "ClaveSegura123"
-}
-```
-
-**Response (200 OK):**
-```json
-{
-  "token": "eyJhbGciOiJIUzI1NiJ9...",
-  "id": "uuid",
-  "name": "Juan Pérez",
-  "email": "juan@email.com",
-  "role": "sponsor",
-  "balance": 0
-}
-```
-
----
-
-### 3) Actualizar perfil
-
-```http
-PUT /api/users/profile
-Authorization: Bearer <token>
-Content-Type: application/json
-```
-
-**Request:**
-```json
-{
-  "name": "Juan Pérez Actualizado",
-  "email": "juan.nuevo@email.com"
-}
-```
-
-**Response (200 OK):**
-```json
-{
-  "id": "uuid",
-  "name": "Juan Pérez Actualizado",
-  "email": "juan.nuevo@email.com",
-  "role": "sponsor",
-  "balance": 1000.00,
-  "historic": 500.00
-}
-```
-
----
-
-### 4) Recargar saldo (Wallet)
-
-```http
-POST /api/users/recharge
-Authorization: Bearer <token>
-Content-Type: application/json
-```
-
-**Request:**
-```json
-{
-  "amount": 50000.00
-}
-```
-
-**Response (200 OK):**
-```json
-{
-  "id": "uuid",
-  "balance": 51000.00,
-  "message": "Recarga realizada exitosamente"
-}
-```
-
-Crea una transacción de tipo `recharge` en el histórico.
-
----
-
-### 5) Consultar balance y actividad
-
-```http
-GET /api/users/balance
-Authorization: Bearer <token>
-```
-
-**Response (200 OK):**
-```json
-{
-  "balance": 51000.00,
-  "historic": 500.00,
-  "campaigns": [
-    {
-      "id": "uuid",
-      "title": "Mi Campaña",
-      "raised": 10000.00,
-      "goal": 50000.00,
-      "contributed": 0
-    }
-  ],
-  "history": [
-    {
-      "id": "uuid",
-      "amount": 50000.00,
-      "type": "recharge",
-      "date": "2026-09-22T13:00:00Z",
-      "campaignName": null,
-      "campaignId": null
-    }
-  ]
-}
-```
-
-- Si el usuario es `creator`: muestra sus campañas con `raised` y `goal`.
-- Si el usuario es `sponsor`: muestra campañas donde aportó con `contributed`.
-
----
-
-## Formato de Errores
-
-Las respuestas de error siguen un formato estándar:
-
-```json
-{
-  "message": "Datos inválidos",
-  "details": {
-    "email": "El email es obligatorio",
-    "password": "La contraseña debe tener al menos 6 caracteres"
-  }
-}
-```
-
-**Códigos HTTP comunes:**
-- `400 Bad Request` — Validación fallida
-- `401 Unauthorized` — Token inválido, expirado o faltante
-- `409 Conflict` — Email ya registrado
-- `500 Internal Server Error` — Error inesperado
-
----
-
-## Swagger / OpenAPI
-
-La documentación interactiva está disponible en:
-
-- **Swagger UI:** `http://localhost:8081/swagger-ui.html`
-- **OpenAPI JSON:** `http://localhost:8081/v3/api-docs`
-
-En Swagger UI:
-1. Click en **Authorize** (🔒)
-2. Pega el token JWT: `Bearer <tu_token>`
-3. Prueba endpoints protegidos directamente desde la UI
-
-El esquema de seguridad `bearerAuth` está configurado en `OpenApiConfig`.
-
----
-
-## Comandos Útiles
+**Comandos útiles**
 
 ```bash
-# Compilar y validar
-./mvnw -DskipTests validate
-
-# Ejecutar pruebas
-./mvnw test
-
-# Empaquetar JAR
-./mvnw package -DskipTests
-
-# Limpiar y compilar
-./mvnw clean compile
+./mvnw clean compile          # Compilar
+./mvnw test                   # Pruebas + reporte de cobertura
+./mvnw package -DskipTests    # Generar target/*.jar
 ```
 
 En Windows reemplazar `./mvnw` por `.\mvnw.cmd`.
 
 ---
 
-## Próximos Pasos / Roadmap
+## Seguridad y roles
 
-- [ ] Gestión de campañas (CRUD para creadores)
-- [ ] Aportes a campañas (patrocinadores)
-- [ ] Retiro de fondos (creadores)
-- [ ] Migraciones de BD con Flyway/Liquibase
-- [ ] Tests de integración y unitarios
+- Autenticación **JWT stateless**. El token se obtiene en `POST /api/auth/login` y se envía en cada petición protegida:
+
+  ```http
+  Authorization: Bearer <token>
+  ```
+
+- `JwtAuthenticationFilter` valida el token y carga el `UserPrincipal` (id, email, rol) en el contexto de seguridad.
+- Contraseñas guardadas con **BCrypt** (`PasswordEncoder`).
+
+| Rol | Descripción |
+|---|---|
+| `sponsor` | Patrocinador. Rol por defecto al registrarse |
+| `creator` | Creador. Un usuario pasa a `creator` automáticamente al publicar su primera campaña |
+| `admin` | Administrador. Acceso a `/api/admin/**` |
+
+**Acceso a rutas** (`SecurityConfig`):
+
+| Rutas | Acceso |
+|---|---|
+| `/api/auth/**`, `GET /api/categories`, `GET /api/campaigns`, `GET /api/campaigns/{id}`, Swagger | Público |
+| `/api/campaigns/mine`, `/api/users/**`, publicar, editar y aportar | Requiere token |
+| `/api/admin/**` | Solo `admin` |
+
+---
+
+## Endpoints
+
+Todos los ejemplos y esquemas completos están en Swagger. Resumen:
+
+### Autenticación
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| POST | `/api/auth/register` | Registrar usuario (409 si el correo ya existe) |
+| POST | `/api/auth/login` | Iniciar sesión; devuelve el token JWT, el rol y el saldo |
+
+### Usuarios (billetera y perfil)
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| PUT | `/api/users/profile` | Editar nombre y correo |
+| POST | `/api/users/recharge` | Recargar saldo (crea una transacción `recharge`) |
+| GET | `/api/users/balance` | Saldo, total aportado, historial de transacciones y campañas propias o apoyadas |
+
+### Campañas y aportes
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| GET | `/api/campaigns?nombre=&categoria=&orden=` | Campañas activas. `orden`: `recaudo`, `fecha`, `popularidad` (por defecto, las más recientes) |
+| GET | `/api/campaigns/{id}` | Detalle con recompensas, stock, patrocinadores y número de aportes |
+| GET | `/api/campaigns/mine` | Campañas del creador (incluye pausadas y cerradas); un admin ve todas |
+| POST | `/api/campaigns` | **HU-06:** publicar campaña (queda `ACTIVE`). 201 |
+| PUT | `/api/campaigns/{id}` | **HU-07:** editar campaña activa (solo su creador) |
+| PATCH | `/api/campaigns/{id}/status` | **HU-08:** cambiar estado (`ACTIVE`, `PAUSED`, `CLOSED`); solo el creador |
+| POST | `/api/campaigns/{id}/contributions/confirm` | **HU-11/HU-12:** aportar con recompensa opcional; devuelve el comprobante (201) y lo envía por correo |
+| POST | `/api/campaigns/{id}/contributions` | **HU-10:** mismo proceso, con respuesta en texto |
+
+Body de un aporte: `{ "amount": 60000, "rewardId": "uuid-opcional" }`.
+
+### Categorías
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| GET | `/api/categories` | Listar categorías (Tecnología, Agricultura, Arte y cultura, Educación, Medio ambiente, Comunidad, Salud) |
+| POST | `/api/categories` | Crear categoría |
+
+### Administración de usuarios (solo `admin`)
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| GET | `/api/admin/users?page=0&size=20&sort=createdAt,desc&email=&role=&status=` | Listado paginado con filtros |
+| GET | `/api/admin/users/{id}` | Detalle de un usuario |
+| POST | `/api/admin/users` | Crear usuario (`sponsor` o `creator`). 201 |
+| PUT | `/api/admin/users/{id}` | Editar nombre, correo y rol |
+| PATCH | `/api/admin/users/{id}/status` | Activar o desactivar: `{ "action": "DISABLE" \| "ENABLE" }`. 204 |
+
+---
+
+## Reglas de negocio
+
+**Campañas (HU-06 a HU-08)**
+- Meta mayor a 0; fecha límite posterior a hoy y como máximo a 90 días.
+- Hasta 4 imágenes y hasta 6 recompensas opcionales (monto mínimo y unidades mayores a 0). Las recompensas quedan fijas al publicar.
+- Solo el creador puede editar o cambiar el estado de su campaña (403 si no).
+- Si la campaña ya recibió aportes, **la meta y la fecha límite quedan bloqueadas** (409).
+- Una campaña pausada o cerrada no recibe aportes.
+
+**Aportes (HU-10 a HU-12)** — validaciones en este orden:
+1. Monto mayor a 0.
+2. Campaña existente y activa.
+3. La recompensa pertenece a la campaña, tiene stock y el monto alcanza su mínimo.
+4. Saldo suficiente.
+
+Al confirmar, en una sola transacción: se descuenta el saldo, se suma al total aportado (`historic`) y al recaudo de la campaña, se baja una unidad de stock, se guarda la transacción (`type = contribution`) y se envía el comprobante por correo. Si algo falla, incluido el correo, **todo se revierte**. La campaña y el patrocinador se bloquean (`PESSIMISTIC_WRITE`) para evitar dos aportes simultáneos sobre la última unidad o el mismo saldo.
+
+---
+
+## Formato de errores
+
+Todas las respuestas de error usan el mismo formato (`ApiError`):
+
+```json
+{
+  "message": "Datos inválidos",
+  "details": {
+    "email": "El email es obligatorio"
+  }
+}
+```
+
+| Código | Cuándo |
+|---|---|
+| 400 | Validación fallida o regla de negocio (saldo insuficiente, recompensa agotada…) |
+| 401 | Token inválido, expirado o faltante |
+| 403 | Sin permisos (no es el creador, no es admin) |
+| 404 | Recurso inexistente |
+| 409 | Conflicto: correo repetido, campaña no activa o con aportes |
+| 500 | Error inesperado o correo no disponible al aportar |
+
+---
+
+## Swagger / OpenAPI
+
+- **Producción:** https://crowdfunding-backend-udea.duckdns.org/swagger-ui/index.html
+- **Local:** `http://localhost:8081/swagger-ui.html`
+- **OpenAPI JSON:** `/v3/api-docs`
+
+Para probar endpoints protegidos:
+1. Ejecutar `POST /api/auth/login` y copiar el `token`.
+2. Pulsar **Authorize** y pegar el token.
+3. Probar los endpoints desde la interfaz.
+
+---
+
+## Pruebas y cobertura
+
+```bash
+./mvnw test
+```
+
+- **97 pruebas** (JUnit 5 + Mockito) en 8 clases: `CampaignTest`, `CampaignServiceTest`, `CampaignContributionConfirmationTest`, `ContributionEmailServiceTest`, `CampaignRequestValidationTest`, `CampaignControllerTest`, `GlobalExceptionHandlerCampaignTest` y `GlobalExceptionHandlerContributionTest`.
+- Reporte de cobertura de JaCoCo: `target/site/jacoco/index.html` (*quality gate* ≥ 65 %).
+
+---
+
+## Despliegue en producción
+
+| Pieza | Dónde |
+|---|---|
+| API | AWS EC2 (Ubuntu) con dominio `crowdfunding-backend-udea.duckdns.org` |
+| Proxy HTTPS | Nginx → `127.0.0.1:8080` |
+| Proceso | Servicio systemd `crowdfunding` (se reinicia solo si se cae) |
+| Base de datos | Supabase (PostgreSQL) |
+| Frontend | AWS Amplify |
+
+**Archivos en el servidor**
+- JAR: `/home/ubuntu/app.jar` · Logs: `/home/ubuntu/app.log`
+- Variables SMTP: `/etc/crowdfunding.env` (permisos `600`), cargadas por el servicio con `EnvironmentFile`.
+
+**Publicar una versión nueva**
+
+```bash
+./mvnw package -DskipTests
+scp -i <llave.pem> target/*.jar ubuntu@<ip-del-servidor>:/home/ubuntu/app.jar
+ssh -i <llave.pem> ubuntu@<ip-del-servidor> 'sudo systemctl restart crowdfunding'
+```
+
+**Revisar el servicio**
+
+```bash
+sudo systemctl status crowdfunding     # Estado
+tail -f /home/ubuntu/app.log           # Log en vivo
+```
+
+> Si el frontend muestra errores de CORS, primero comprobar que la API responde: un 502 de Nginx significa que el servicio está caído, no que CORS esté mal configurado.
+
+---
+
+## Limitaciones conocidas
+
+- **Credenciales en el repositorio:** la contraseña de la base de datos y `jwt.secret` están en `application.properties`. Deben moverse a variables de entorno y cambiarse.
+- **Cuentas desactivadas pueden iniciar sesión:** `AuthService.login` no revisa el estado `INACTIVE`, así que desactivar un usuario no le quita el acceso a la API.
+- **`POST /api/categories` es público:** cualquier persona puede crear categorías sin iniciar sesión. Debería exigir rol `admin`.
+- **Migraciones manuales:** los scripts SQL se ejecutan a mano; no hay Flyway ni Liquibase.
+- **Notificación al cerrar campaña:** hoy solo se registra en el log; no se envía correo a los patrocinadores.
+- **Historial de estados incompleto:** `campaign_status_history` solo guarda el estado inicial al publicar; los cambios a `PAUSED` o `CLOSED` no se registran todavía.
+
+---
+
+## Roadmap
+
+- [ ] Mover credenciales a variables de entorno y proteger `POST /api/categories`
+- [ ] Rechazar el login de cuentas `INACTIVE`
+- [ ] Migraciones automáticas con Flyway
+- [ ] Retiro de fondos para creadores
+- [ ] Finalizar campañas automáticamente al vencer la fecha límite (`FINISHED`)
+- [ ] Correo a patrocinadores al cerrar una campaña
 - [ ] CI/CD con GitHub Actions
-- [ ] Métricas con Actuator + Prometheus/Grafana
-- [ ] Rate limiting y hardening de seguridad
+- [ ] Pruebas para `UserService`, `AuthService` y `AdminUserService`
 
 ---
 
 ## Licencia
 
 MIT — Uso académico CodeFactory UdeA.
----
-
-## Campañas (HU-06 y HU-07)
-
-**Antes de levantar el backend** ejecutar en Supabase (SQL Editor) el script
-`src/main/resources/db/migration/V3__campaigns_publish_and_edit.sql`
-(`ddl-auto=validate` no crea tablas ni columnas). Es idempotente.
-Ejecutar también, después de V3, `src/main/resources/db/migration/V5__campaign_status_constraint.sql`
-para que la restricción de estados de la base de datos permita los estados usados por el backend.
-Es idempotente. Ejecutar asimismo `src/main/resources/db/migration/V6__campaign_image_url_to_text.sql`
-para permitir guardar las imágenes subidas como data URLs de hasta 2 MB.
-
-| Método | Endpoint | Descripción |
-|---|---|---|
-| `POST` | `/api/campaigns` | HU-06: publica una campaña (queda `ACTIVE`). Devuelve 201. |
-| `PUT` | `/api/campaigns/{id}` | HU-07: edita título, descripción, categoría e imágenes de una campaña activa. Meta y fecha solo si `raised = 0`. Las recompensas no se pueden modificar (409). |
-| `GET` | `/api/campaigns` | Listado público de campañas activas. |
-| `GET` | `/api/campaigns/mine` | Campañas del creador autenticado (incluye pausadas y cerradas); para administradores, todas las campañas. |
-| `GET` | `/api/campaigns/{id}` | Detalle de una campaña. |
-| `GET` | `/api/categories` | Categorías para el selector del formulario. |
-
-Reglas: meta > 0; fecha límite posterior a hoy y máximo 90 días; hasta 4 imágenes (URL http/https);
-categoría obligatoria (Tecnología, Agricultura, Arte y cultura, Educación, Medio ambiente, Comunidad, Salud);
-hasta 6 recompensas opcionales, cada una con monto mínimo y unidades disponibles mayores a cero, que quedan fijas al publicar. Errores: 400 (validación), 403 (no es el creador), 404 (no existe), 409 (campaña no activa o con aportes).
-
-Pruebas y cobertura: `mvn test` genera el reporte JaCoCo en `target/site/jacoco/index.html`.
-
----
-
-## Aportes con recompensa y comprobante (HU-10, HU-11 y HU-12)
-
-**Antes de levantar el backend**
-
-1. Ejecutar en Supabase (SQL Editor) `src/main/resources/db/migration/V4__contributions_rewards_and_receipts.sql`
-   (permite `stock = 0` en `rewards` y agrega `reward_id` / `reward_name` a `transactions`). Es idempotente.
-2. Configurar el correo por variables de entorno (no se guardan credenciales en el código):
-
-| Variable | Uso | Ejemplo |
-|---|---|---|
-| `SMTP_HOST` | Servidor SMTP | `smtp.gmail.com` |
-| `SMTP_PORT` | Puerto | `587` |
-| `SMTP_USERNAME` | Cuenta SMTP | cuenta remitente |
-| `SMTP_PASSWORD` | Contraseña o clave de aplicación | no subir al repositorio |
-| `SMTP_AUTH` | Activar autenticación | `true` |
-| `SMTP_STARTTLS` | Activar STARTTLS | `true` |
-| `SMTP_FROM` | Dirección remitente autorizada | la del proveedor |
-
-Si `SMTP_HOST` o `SMTP_FROM` no están configurados, o el proveedor rechaza el envío, **el aporte no se confirma** (error 500 y todo se revierte).
-
-| Método | Endpoint | Descripción |
-|---|---|---|
-| `POST` | `/api/campaigns/{id}/contributions/confirm` | HU-11/HU-12: aporta con `rewardId` opcional y devuelve el comprobante (201). |
-| `POST` | `/api/campaigns/{id}/contributions` | HU-10: misma ruta y respuesta de texto; acepta `rewardId` opcional y comparte el mismo procesamiento (incluido el correo). |
-
-Body: `{ "amount": 60000, "rewardId": "uuid-opcional" }`. El `rewardId` debe ser uno de los `rewards` de `GET /api/campaigns/{id}`.
-
-Validaciones (en este orden): monto > 0; campaña existente y activa; recompensa de esa campaña; stock > 0
-(con stock `0` el detalle de campaña lo devuelve como agotado); monto >= `minAmount` de la recompensa; saldo suficiente.
-Errores: 400 (regla de negocio o validación), 404 (campaña inexistente), 409 (campaña no activa), 500 (correo no disponible).
-Al confirmar se descuenta el saldo, se suma al total histórico aportado (`historic`) y al recaudo de la campaña, se reduce el stock y se guarda la transacción
-(`type = contribution`, con `rewardId` y `rewardName`). La campaña y el patrocinador se bloquean (`PESSIMISTIC_WRITE`) para evitar aportes simultáneos sobre la última unidad o el mismo saldo.
