@@ -125,8 +125,8 @@ La configuración está en `src/main/resources/application.properties`.
 | Propiedad / variable | Uso | Valor por defecto |
 |---|---|---|
 | `SERVER_PORT` | Puerto HTTP | `8081` (en producción se usa `8080`) |
-| `spring.datasource.*` | Conexión a PostgreSQL (Supabase) | Definida en el archivo |
-| `jwt.secret`, `jwt.expiration` | Firma y duración del token (24 h) | Definidos en el archivo |
+| `spring.datasource.*` | Conexión a PostgreSQL (Supabase) | Se configura en el servidor |
+| `jwt.secret`, `jwt.expiration` | Firma y duración del token (24 h) | Se configura en el servidor |
 | `SMTP_HOST` | Servidor SMTP | `smtp.gmail.com` |
 | `SMTP_PORT` | Puerto SMTP | `587` |
 | `SMTP_USERNAME` | Cuenta SMTP | — |
@@ -137,8 +137,6 @@ La configuración está en `src/main/resources/application.properties`.
 Spring Boot permite sobreescribir cualquier propiedad con una variable de entorno, por ejemplo `SPRING_DATASOURCE_PASSWORD` o `JWT_SECRET`.
 
 > ⚠️ **Sin correo configurado no hay aportes.** Si `SMTP_HOST` o `SMTP_FROM` faltan, o el proveedor rechaza el envío, el aporte se revierte y la API responde 500.
-
-> ⚠️ **Pendiente de seguridad:** la contraseña de la base de datos y el secreto JWT todavía están escritos en `application.properties`. Ver [Limitaciones conocidas](#limitaciones-conocidas).
 
 ---
 
@@ -377,7 +375,6 @@ tail -f /home/ubuntu/app.log           # Log en vivo
 
 ## Limitaciones conocidas
 
-- **Credenciales en el repositorio:** la contraseña de la base de datos y `jwt.secret` están en `application.properties`. Deben moverse a variables de entorno y cambiarse.
 - **Cuentas desactivadas pueden iniciar sesión:** `AuthService.login` no revisa el estado `INACTIVE`, así que desactivar un usuario no le quita el acceso a la API.
 - **`POST /api/categories` es público:** cualquier persona puede crear categorías sin iniciar sesión. Debería exigir rol `admin`.
 - **Migraciones manuales:** los scripts SQL se ejecutan a mano; no hay Flyway ni Liquibase.
@@ -388,7 +385,7 @@ tail -f /home/ubuntu/app.log           # Log en vivo
 
 ## Roadmap
 
-- [ ] Mover credenciales a variables de entorno y proteger `POST /api/categories`
+- [ ] Proteger `POST /api/categories`
 - [ ] Rechazar el login de cuentas `INACTIVE`
 - [ ] Migraciones automáticas con Flyway
 - [ ] Retiro de fondos para creadores
