@@ -125,11 +125,12 @@ class CampaignControllerTest {
         assertThat(result.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(result.getBody()).containsExactly(new CategoryResponse(CATEGORY_ID, "Educación"));
     }
-
+    
     private CampaignResponse response() {
         return new CampaignResponse(CAMPAIGN_ID, "Título", "Descripción", new BigDecimal("1000000"),
-                BigDecimal.ZERO, DEADLINE, CampaignStatus.ACTIVE, CATEGORY_ID, "Tecnología", List.of(),
+                BigDecimal.ZERO, BigDecimal.ZERO, DEADLINE, CampaignStatus.ACTIVE, CATEGORY_ID, "Tecnología", List.of(),
                 USER_ID, "Ana Pérez", "ana@correo.com", false, List.of(), 0,
                 Instant.parse("2026-10-09T12:00:00Z"), null, List.of());
-    }
+}
+
 }

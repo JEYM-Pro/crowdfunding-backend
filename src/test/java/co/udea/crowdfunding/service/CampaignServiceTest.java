@@ -68,6 +68,8 @@ class CampaignServiceTest {
     private UserRepository userRepository;
     @Mock
     private TransactionRepository transactionRepository;
+    @Mock
+    private CampaignMilestoneService milestoneService;
 
     private CampaignService service;
     private Category category;
@@ -75,7 +77,7 @@ class CampaignServiceTest {
     @BeforeEach
     void setUp() {
         service = new CampaignService(campaignRepository, categoryRepository, statusHistoryRepository,
-                userRepository, transactionRepository, Clock.fixed(NOW, ZoneOffset.UTC));
+                userRepository, transactionRepository, Clock.fixed(NOW, ZoneOffset.UTC), milestoneService);
         category = new Category("Tecnología");
         ReflectionTestUtils.setField(category, "id", CATEGORY_ID);
         stubUser("creator");
@@ -126,7 +128,7 @@ class CampaignServiceTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"creator", "admin"})
+    @ValueSource(strings = { "creator", "admin" })
     void create_byCreatorOrAdmin_keepsRole(String role) {
         User user = stubUser(role);
         stubCategory();
@@ -224,15 +226,26 @@ class CampaignServiceTest {
     }
 
     @Test
-    void create_withUnknownCategory_isRejected() {
+    void create_withUnknownCategory_usesDefaultCategory() {
         stubUser("sponsor");
-        when(categoryRepository.findById(CATEGORY_ID)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.create(USER_ID, createRequest(NOW.plus(10, ChronoUnit.DAYS), null)))
-                .isInstanceOf(InvalidCampaignException.class)
-                .hasMessage(CampaignService.CATEGORY_NOT_FOUND_MESSAGE);
+        when(categoryRepository.findById(CATEGORY_ID))
+                .thenReturn(Optional.empty());
 
-        verify(campaignRepository, never()).save(any(Campaign.class));
+        when(categoryRepository.findAllByOrderByNameAsc())
+                .thenReturn(List.of(category));
+
+        stubSaveCampaign();
+
+        CampaignResponse response = service.create(
+                USER_ID,
+                createRequest(NOW.plus(10, ChronoUnit.DAYS), null));
+
+        assertThat(response.categoryId()).isEqualTo(CATEGORY_ID);
+        assertThat(response.categoryName()).isEqualTo("Tecnología");
+        assertThat(response.status()).isEqualTo(CampaignStatus.ACTIVE);
+
+        verify(campaignRepository).save(any(Campaign.class));
     }
 
     @Test
@@ -359,7 +372,7 @@ class CampaignServiceTest {
     }
 
     @ParameterizedTest
-    @EnumSource(value = CampaignStatus.class, names = {"PAUSED", "CLOSED", "FINISHED"})
+    @EnumSource(value = CampaignStatus.class, names = { "PAUSED", "CLOSED", "FINISHED" })
     void update_ofNonActiveCampaign_isRejected(CampaignStatus status) {
         Campaign campaign = stubCampaign(false);
         ReflectionTestUtils.setField(campaign, "status", status);
@@ -566,7 +579,7 @@ class CampaignServiceTest {
     }
 
     private UpdateCampaignRequest updateRequest(String title, String description, List<String> images,
-                                                BigDecimal goal, Instant deadline) {
+            BigDecimal goal, Instant deadline) {
         return new UpdateCampaignRequest(title, description, images, goal, deadline, null, null);
     }
 }

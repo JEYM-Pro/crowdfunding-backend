@@ -65,6 +65,8 @@ class CampaignContributionConfirmationTest {
     private TransactionRepository transactionRepository;
     @Mock
     private ContributionEmailService contributionEmailService;
+    @Mock
+    private CampaignMilestoneService milestoneService;
 
     private CampaignService service;
     private Campaign campaign;
@@ -74,7 +76,7 @@ class CampaignContributionConfirmationTest {
     @BeforeEach
     void setUp() {
         service = new CampaignService(campaignRepository, categoryRepository, statusHistoryRepository,
-                userRepository, transactionRepository, Clock.fixed(NOW, ZoneOffset.UTC));
+                userRepository, transactionRepository, Clock.fixed(NOW, ZoneOffset.UTC), milestoneService);
         ReflectionTestUtils.setField(service, "contributionEmailService", contributionEmailService);
 
         reward = new Reward("Camiseta oficial", "Camiseta del proyecto", new BigDecimal("50000"), 3);
@@ -96,8 +98,8 @@ class CampaignContributionConfirmationTest {
         stubLockedLookups();
         stubSaveTransaction();
 
-        ContributionConfirmationResponse receipt =
-                service.makeContributionWithConfirmation(CAMPAIGN_ID, new BigDecimal("60000"), REWARD_ID, SPONSOR_ID);
+        ContributionConfirmationResponse receipt = service.makeContributionWithConfirmation(CAMPAIGN_ID,
+                new BigDecimal("60000"), REWARD_ID, SPONSOR_ID);
 
         assertThat(sponsor.getBalance()).isEqualByComparingTo("40000");
         assertThat(sponsor.getHistoric()).isEqualByComparingTo("60000");
@@ -131,8 +133,8 @@ class CampaignContributionConfirmationTest {
         stubLockedLookups();
         stubSaveTransaction();
 
-        ContributionConfirmationResponse receipt =
-                service.makeContributionWithConfirmation(CAMPAIGN_ID, new BigDecimal("25000"), null, SPONSOR_ID);
+        ContributionConfirmationResponse receipt = service.makeContributionWithConfirmation(CAMPAIGN_ID,
+                new BigDecimal("25000"), null, SPONSOR_ID);
 
         assertThat(receipt.rewardId()).isNull();
         assertThat(receipt.rewardName()).isNull();
@@ -210,7 +212,7 @@ class CampaignContributionConfirmationTest {
 
     @Test
     void zeroNegativeOrMissingAmount_isRejectedBeforeTouchingTheDatabase() {
-        for (BigDecimal amount : new BigDecimal[]{BigDecimal.ZERO, new BigDecimal("-5"), null}) {
+        for (BigDecimal amount : new BigDecimal[] { BigDecimal.ZERO, new BigDecimal("-5"), null }) {
             assertThatThrownBy(() -> service.makeContributionWithConfirmation(CAMPAIGN_ID, amount, null, SPONSOR_ID))
                     .isInstanceOf(InvalidContributionException.class)
                     .hasMessage("El monto a aportar debe ser mayor a cero.");

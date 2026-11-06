@@ -16,8 +16,15 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
 
     long countByUserId(UUID userId);
 
-    @Query(nativeQuery = true, value = "SELECT DISTINCT u.email FROM transactions t JOIN users u ON t.user_id = u.id WHERE t.campaign_id = :campaignId")
+    @Query(nativeQuery = true, value = "SELECT DISTINCT u.email FROM transactions t JOIN users u ON t.user_id = u.id WHERE t.campaign_id = :campaignId AND t.type = 'contribution'")
     List<String> findDistinctUserEmailByCampaignId(@Param("campaignId") UUID campaignId);
 
     long countByCampaignId(UUID campaignId);
+
+    @Query(nativeQuery = true, value = "SELECT COUNT(DISTINCT t.user_id) FROM transactions t WHERE t.campaign_id = :campaignId AND t.type = 'contribution'")
+    long countDistinctContributorsByCampaignId(@Param("campaignId") UUID campaignId);
+
+    List<Transaction> findByCampaignIdAndTypeOrderByDateDesc(UUID campaignId, String type);
+
+    List<Transaction> findByUserIdAndTypeOrderByDateDesc(UUID userId, String type);
 }

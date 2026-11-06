@@ -25,6 +25,9 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import co.udea.crowdfunding.dto.CampaignEarningsResponse;
+import co.udea.crowdfunding.dto.SponsorContributionsSummaryResponse;
+import co.udea.crowdfunding.service.ContributionQueryService;
 
 import java.util.List;
 import java.util.UUID;
@@ -36,9 +39,13 @@ import java.util.UUID;
 public class CampaignController {
 
     private final CampaignService campaignService;
+    private final ContributionQueryService contributionQueryService;
 
-    public CampaignController(CampaignService campaignService) {
+    public CampaignController(
+            CampaignService campaignService,
+            ContributionQueryService contributionQueryService) {
         this.campaignService = campaignService;
+        this.contributionQueryService = contributionQueryService;
     }
 
     @PostMapping
@@ -81,7 +88,7 @@ public class CampaignController {
             @RequestParam(required = false) String nombre,
             @RequestParam(required = false) UUID categoria,
             @RequestParam(required = false) String orden) {
-        
+
         List<CampaignResponse> campaigns = campaignService.exploreActiveCampaigns(nombre, categoria, orden);
         return ResponseEntity.ok(campaigns);
     }
@@ -118,6 +125,28 @@ public class CampaignController {
         return ResponseEntity.status(HttpStatus.CREATED).body(
                 campaignService.makeContributionWithConfirmation(
                         id, request.amount(), request.rewardId(), principal.getId()));
+    }
+
+    @GetMapping("/{id}/earnings")
+    @Operation(summary = "HU-14: Consultar ganancias y aportantes de una campaña")
+    public ResponseEntity<CampaignEarningsResponse> getCampaignEarnings(
+            @PathVariable UUID id,
+            @AuthenticationPrincipal UserPrincipal principal,
+            @RequestParam(required = false) String contributor,
+            @RequestParam(required = false) String reward) {
+
+        return ResponseEntity.ok(
+                contributionQueryService.getCampaignEarnings(
+                        id, principal.getId(), contributor, reward));
+    }
+
+    @GetMapping("/contributions/summary")
+    @Operation(summary = "HU-14: Consultar el total aportado por un patrocinador")
+    public ResponseEntity<SponsorContributionsSummaryResponse> getSponsorSummary(
+            @AuthenticationPrincipal UserPrincipal principal) {
+
+        return ResponseEntity.ok(
+                contributionQueryService.getSponsorSummary(principal.getId()));
     }
 
 }

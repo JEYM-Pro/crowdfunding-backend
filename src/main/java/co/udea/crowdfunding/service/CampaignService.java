@@ -1,5 +1,19 @@
 package co.udea.crowdfunding.service;
 
+import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.stream.Collectors;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Sort;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
 import co.udea.crowdfunding.dto.CampaignResponse;
 import co.udea.crowdfunding.dto.ContributionConfirmationResponse;
 import co.udea.crowdfunding.dto.CreateCampaignRequest;
@@ -22,19 +36,6 @@ import co.udea.crowdfunding.repository.CampaignStatusHistoryRepository;
 import co.udea.crowdfunding.repository.CategoryRepository;
 import co.udea.crowdfunding.repository.TransactionRepository;
 import co.udea.crowdfunding.repository.UserRepository;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.data.domain.Sort;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-
-import java.math.BigDecimal;
-import java.time.Clock;
-import java.time.Instant;
-import java.time.temporal.ChronoUnit;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
-import java.util.stream.Collectors;
 
 @Service
 @Transactional(readOnly = true)
@@ -59,19 +60,22 @@ public class CampaignService {
     private final UserRepository userRepository;
     private final TransactionRepository transactionRepository;
     private final Clock clock;
+    private final CampaignMilestoneService milestoneService;
 
     public CampaignService(CampaignRepository campaignRepository,
-                           CategoryRepository categoryRepository,
-                           CampaignStatusHistoryRepository statusHistoryRepository,
-                           UserRepository userRepository,
-                           TransactionRepository transactionRepository,
-                           Clock clock) {
+            CategoryRepository categoryRepository,
+            CampaignStatusHistoryRepository statusHistoryRepository,
+            UserRepository userRepository,
+            TransactionRepository transactionRepository,
+            Clock clock,
+            CampaignMilestoneService milestoneService) {
         this.campaignRepository = campaignRepository;
         this.categoryRepository = categoryRepository;
         this.statusHistoryRepository = statusHistoryRepository;
         this.userRepository = userRepository;
         this.transactionRepository = transactionRepository;
         this.clock = clock;
+        this.milestoneService = milestoneService;
     }
 
     @Transactional
@@ -156,8 +160,7 @@ public class CampaignService {
         User creator = userRepository.findById(saved.getUserId())
                 .orElseThrow(() -> new IllegalArgumentException("Usuario no encontrado"));
         List<String> backerEmails = transactionRepository.findDistinctUserEmailByCampaignId(saved.getId());
-        int contributionsCount = (int) transactionRepository.countByCampaignId(saved.getId());
-
+        int contributionsCount = (int) transactionRepository.countDistinctContributorsByCampaignId(saved.getId());
         return CampaignResponse.fromWithDetails(
                 saved, categoryName(saved.getCategoryId()), creator, backerEmails, contributionsCount);
     }
@@ -167,7 +170,7 @@ public class CampaignService {
         User creator = userRepository.findById(campaign.getUserId())
                 .orElseThrow(() -> new IllegalArgumentException("Usuario no encontrado"));
         List<String> backerEmails = transactionRepository.findDistinctUserEmailByCampaignId(campaignId);
-        int contributionsCount = (int) transactionRepository.countByCampaignId(campaignId);
+        int contributionsCount = (int) transactionRepository.countDistinctContributorsByCampaignId(campaignId);
         return CampaignResponse.fromWithDetails(
                 campaign, categoryName(campaign.getCategoryId()), creator, backerEmails, contributionsCount);
     }
@@ -198,10 +201,13 @@ public class CampaignService {
         return campaigns.stream()
                 .map((campaign) -> {
                     User creator = creators.get(campaign.getUserId());
-                    List<String> backerEmails = transactionRepository.findDistinctUserEmailByCampaignId(campaign.getId());
-                    int contributionsCount = (int) transactionRepository.countByCampaignId(campaign.getId());
+                    List<String> backerEmails = transactionRepository
+                            .findDistinctUserEmailByCampaignId(campaign.getId());
+                    int contributionsCount = (int) transactionRepository
+                            .countDistinctContributorsByCampaignId(campaign.getId());
                     return CampaignResponse.fromWithDetails(
-                            campaign, categoryNames.get(campaign.getCategoryId()), creator, backerEmails, contributionsCount);
+                            campaign, categoryNames.get(campaign.getCategoryId()), creator, backerEmails,
+                            contributionsCount);
                 })
                 .toList();
     }
@@ -228,11 +234,14 @@ public class CampaignService {
         boolean hasCategory = (categoryIdFilter != null);
 
         if (hasName && hasCategory) {
-            campaigns = campaignRepository.findByTitleContainingIgnoreCaseAndCategoryIdAndStatus(nameFilter, categoryIdFilter, CampaignStatus.ACTIVE, sortCriteria);
+            campaigns = campaignRepository.findByTitleContainingIgnoreCaseAndCategoryIdAndStatus(nameFilter,
+                    categoryIdFilter, CampaignStatus.ACTIVE, sortCriteria);
         } else if (hasName) {
-            campaigns = campaignRepository.findByTitleContainingIgnoreCaseAndStatus(nameFilter, CampaignStatus.ACTIVE, sortCriteria);
+            campaigns = campaignRepository.findByTitleContainingIgnoreCaseAndStatus(nameFilter, CampaignStatus.ACTIVE,
+                    sortCriteria);
         } else if (hasCategory) {
-            campaigns = campaignRepository.findByCategoryIdAndStatus(categoryIdFilter, CampaignStatus.ACTIVE, sortCriteria);
+            campaigns = campaignRepository.findByCategoryIdAndStatus(categoryIdFilter, CampaignStatus.ACTIVE,
+                    sortCriteria);
         } else {
             campaigns = campaignRepository.findByStatus(CampaignStatus.ACTIVE, sortCriteria);
         }
@@ -250,10 +259,13 @@ public class CampaignService {
         return campaigns.stream()
                 .map((campaign) -> {
                     User creator = creators.get(campaign.getUserId());
-                    List<String> backerEmails = transactionRepository.findDistinctUserEmailByCampaignId(campaign.getId());
-                    int contributionsCount = (int) transactionRepository.countByCampaignId(campaign.getId());
+                    List<String> backerEmails = transactionRepository
+                            .findDistinctUserEmailByCampaignId(campaign.getId());
+                    int contributionsCount = (int) transactionRepository
+                            .countDistinctContributorsByCampaignId(campaign.getId());
                     return CampaignResponse.fromWithDetails(
-                            campaign, categoryNames.get(campaign.getCategoryId()), creator, backerEmails, contributionsCount);
+                            campaign, categoryNames.get(campaign.getCategoryId()), creator, backerEmails,
+                            contributionsCount);
                 })
                 .toList();
     }
@@ -330,19 +342,34 @@ public class CampaignService {
         }
 
         if (newStatus == CampaignStatus.CLOSED) {
-            System.out.println("Notificando a los patrocinadores que la campaña " + campaign.getTitle() + " ha sido cerrada.");
+            System.out.println(
+                    "Notificando a los patrocinadores que la campaña " + campaign.getTitle() + " ha sido cerrada.");
         }
+
+        CampaignStatus previousStatus = campaign.getStatus();
 
         campaign.setStatus(newStatus);
         Campaign updatedCampaign = campaignRepository.save(campaign);
 
+        if (previousStatus != newStatus) {
+            statusHistoryRepository.save(
+                    new CampaignStatusHistory(
+                            campaign.getId(),
+                            previousStatus,
+                            newStatus,
+                            userId,
+                            clock.instant()));
+        }
+
         User creator = userRepository.findById(updatedCampaign.getUserId())
                 .orElseThrow(() -> new IllegalArgumentException("Usuario no encontrado"));
         List<String> backerEmails = transactionRepository.findDistinctUserEmailByCampaignId(updatedCampaign.getId());
-        int contributionsCount = (int) transactionRepository.countByCampaignId(updatedCampaign.getId());
+        int contributionsCount = (int) transactionRepository
+                .countDistinctContributorsByCampaignId(updatedCampaign.getId());
 
         return CampaignResponse.fromWithDetails(
-                updatedCampaign, categoryName(updatedCampaign.getCategoryId()), creator, backerEmails, contributionsCount);
+                updatedCampaign, categoryName(updatedCampaign.getCategoryId()), creator, backerEmails,
+                contributionsCount);
     }
 
     @Autowired
@@ -350,9 +377,9 @@ public class CampaignService {
 
     @Transactional
     public ContributionConfirmationResponse makeContributionWithConfirmation(UUID campaignId,
-                                                                              BigDecimal amount,
-                                                                              UUID rewardId,
-                                                                              UUID userId) {
+            BigDecimal amount,
+            UUID rewardId,
+            UUID userId) {
         if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
             throw new InvalidContributionException("El monto a aportar debe ser mayor a cero.");
         }
@@ -361,6 +388,11 @@ public class CampaignService {
                 .orElseThrow(CampaignNotFoundException::new);
         if (!campaign.isActive()) {
             throw new CampaignNotEditableException(CONTRIBUTION_NOT_ACTIVE_MESSAGE);
+        }
+
+        if (!campaign.getDeadline().isAfter(clock.instant())) {
+            throw new CampaignNotEditableException(
+                    "No se pueden realizar aportes porque la campaña ha alcanzado su fecha límite.");
         }
 
         User sponsor = userRepository.findByIdForUpdate(userId)
@@ -386,6 +418,7 @@ public class CampaignService {
         sponsor.subtractBalance(amount);
         sponsor.setHistoric(sponsor.getHistoric().add(amount));
         sponsor.setUpdatedAt(now);
+        BigDecimal previousRaised = campaign.getRaised();
         campaign.addRaisedAmount(amount);
         if (reward != null) {
             reward.decreaseStock();
@@ -403,6 +436,8 @@ public class CampaignService {
                 campaign.getTitle(),
                 reward == null ? null : reward.getId(),
                 reward == null ? null : reward.getName()));
+
+        milestoneService.checkMilestones(campaign, previousRaised, now);
 
         ContributionConfirmationResponse receipt = new ContributionConfirmationResponse(
                 transaction.getId(),

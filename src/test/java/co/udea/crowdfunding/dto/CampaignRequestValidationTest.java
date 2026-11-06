@@ -78,8 +78,7 @@ class CampaignRequestValidationTest {
                 "El título es obligatorio.",
                 "La descripción es obligatoria.",
                 "La meta de financiación es obligatoria.",
-                "La fecha límite es obligatoria.",
-                "Selecciona una categoría.");
+                "La fecha límite es obligatoria.");
     }
 
     @Test
