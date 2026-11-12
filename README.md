@@ -51,6 +51,8 @@ API REST de la plataforma de Crowdfunding (CodeFactory UdeA), construida con Spr
 | Explorar campañas: búsqueda, categoría y orden | HU-09 | ✅ |
 | Aportes, recompensas con stock y comprobante por correo | HU-10, HU-11, HU-12 | ✅ |
 | Administración de usuarios | HU-21 | ✅ |
+| Preferencias de interfaz: tamaño de texto, tema e idioma | HU-22, HU-23 | ✅ |
+| Seguridad: contraseña al editar perfil | HU-S01 | ✅ |
 | Categorías | — | ✅ |
 
 ---
@@ -158,6 +160,7 @@ Spring Boot permite sobreescribir cualquier propiedad con una variable de entorn
 | `V4__contributions_rewards_and_receipts.sql` | Permite `stock = 0` y agrega `reward_id` / `reward_name` a `transactions` |
 | `V5__campaign_status_constraint.sql` | Restricción de estados de campaña (`ACTIVE`, `PAUSED`, `CLOSED`, `FINISHED`) |
 | `V6__campaign_image_url_to_text.sql` | Permite guardar imágenes como *data URL* de hasta 2 MB |
+| `V8__user_preferences.sql` | Agrega `font_size`, `theme` y `language` a `users` (HU-22, HU-23) |
 
 ---
 
@@ -237,7 +240,9 @@ Todos los ejemplos y esquemas completos están en Swagger. Resumen:
 
 | Método | Ruta | Descripción |
 |---|---|---|
-| PUT | `/api/users/profile` | Editar nombre y correo |
+| PUT | `/api/users/profile` | Editar nombre y correo. **HU-S01:** exige `password` (contraseña actual); si falta o es incorrecta responde 400 y no guarda nada |
+| GET | `/api/users/preferences` | **HU-22/HU-23:** tamaño de texto, tema e idioma guardados |
+| PUT | `/api/users/preferences` | **HU-22/HU-23:** guardar preferencias `{ "fontSize": "small\|medium\|large", "theme": "light\|dark", "language": "es\|en" }` (campos opcionales) |
 | POST | `/api/users/recharge` | Recargar saldo (crea una transacción `recharge`) |
 | GET | `/api/users/balance` | Saldo, total aportado, historial de transacciones y campañas propias o apoyadas |
 

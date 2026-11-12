@@ -2,6 +2,8 @@ package co.udea.crowdfunding.controller;
 
 import co.udea.crowdfunding.config.UserPrincipal;
 import co.udea.crowdfunding.dto.BalanceResponse;
+import co.udea.crowdfunding.dto.PreferencesRequest;
+import co.udea.crowdfunding.dto.PreferencesResponse;
 import co.udea.crowdfunding.dto.RechargeRequest;
 import co.udea.crowdfunding.dto.RechargeResponse;
 import co.udea.crowdfunding.dto.UpdateProfileRequest;
@@ -37,6 +39,22 @@ public class UserController {
         return ResponseEntity.ok(toResponse(updated));
     }
 
+    @GetMapping("/preferences")
+    public ResponseEntity<PreferencesResponse> getPreferences(
+            @AuthenticationPrincipal UserPrincipal principal) {
+
+        return ResponseEntity.ok(toPreferences(userService.getPreferences(principal.getId())));
+    }
+
+    @PutMapping("/preferences")
+    public ResponseEntity<PreferencesResponse> updatePreferences(
+            @AuthenticationPrincipal UserPrincipal principal,
+            @Valid @RequestBody PreferencesRequest request) {
+
+        User updated = userService.updatePreferences(principal.getId(), request);
+        return ResponseEntity.ok(toPreferences(updated));
+    }
+
     @PostMapping("/recharge")
     public ResponseEntity<RechargeResponse> recharge(
             @AuthenticationPrincipal UserPrincipal principal,
@@ -55,6 +73,10 @@ public class UserController {
             @AuthenticationPrincipal UserPrincipal principal) {
 
         return ResponseEntity.ok(userService.getBalanceDetail(principal.getId()));
+    }
+
+    private PreferencesResponse toPreferences(User user) {
+        return new PreferencesResponse(user.getFontSize(), user.getTheme(), user.getLanguage());
     }
 
     private UserResponse toResponse(User user) {

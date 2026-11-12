@@ -29,6 +29,12 @@ public class GlobalExceptionHandler {
                 .body(new ApiError(ex.getMessage(), Map.of()));
     }
 
+    @ExceptionHandler(InvalidPasswordException.class)
+    public ResponseEntity<ApiError> handleInvalidPassword(InvalidPasswordException ex) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(new ApiError(ex.getMessage(), Map.of()));
+    }
+
     @ExceptionHandler(InvalidCampaignException.class)
     public ResponseEntity<ApiError> handleInvalidCampaign(InvalidCampaignException ex) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
