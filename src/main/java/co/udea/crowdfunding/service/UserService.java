@@ -2,6 +2,7 @@ package co.udea.crowdfunding.service;
 
 import co.udea.crowdfunding.dto.BalanceResponse;
 import co.udea.crowdfunding.dto.CampaignSummary;
+import co.udea.crowdfunding.dto.PreferencesRequest;
 import co.udea.crowdfunding.dto.RegisterRequest;
 import co.udea.crowdfunding.dto.TransactionItem;
 import co.udea.crowdfunding.dto.UpdateProfileRequest;
@@ -9,6 +10,7 @@ import co.udea.crowdfunding.entity.Campaign;
 import co.udea.crowdfunding.entity.Transaction;
 import co.udea.crowdfunding.entity.User;
 import co.udea.crowdfunding.exception.EmailAlreadyExistsException;
+import co.udea.crowdfunding.exception.InvalidPasswordException;
 import co.udea.crowdfunding.repository.CampaignRepository;
 import co.udea.crowdfunding.repository.TransactionRepository;
 import co.udea.crowdfunding.repository.UserRepository;
@@ -74,6 +76,12 @@ public class UserService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new IllegalArgumentException("Usuario no encontrado"));
 
+        // HU-S01: sin contraseña correcta no se aplica ningún cambio.
+        if (request.password() == null || request.password().isBlank()
+                || !passwordEncoder.matches(request.password(), user.getPassword())) {
+            throw new InvalidPasswordException();
+        }
+
         String newEmail = request.email().trim().toLowerCase();
 
         Optional<User> existingUser = userRepository.findByEmail(newEmail);
@@ -83,6 +91,31 @@ public class UserService {
 
         user.setName(request.name().trim());
         user.setEmail(newEmail);
+        user.setUpdatedAt(Instant.now());
+
+        return userRepository.save(user);
+    }
+
+    public User getPreferences(UUID userId) {
+        return userRepository.findById(userId)
+                .orElseThrow(() -> new IllegalArgumentException("Usuario no encontrado"));
+    }
+
+    /** HU-22 / HU-23: guarda tamaño de texto, tema e idioma para mantenerlos entre sesiones. */
+    @Transactional
+    public User updatePreferences(UUID userId, PreferencesRequest request) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new IllegalArgumentException("Usuario no encontrado"));
+
+        if (request.fontSize() != null) {
+            user.setFontSize(request.fontSize());
+        }
+        if (request.theme() != null) {
+            user.setTheme(request.theme());
+        }
+        if (request.language() != null) {
+            user.setLanguage(request.language());
+        }
         user.setUpdatedAt(Instant.now());
 
         return userRepository.save(user);

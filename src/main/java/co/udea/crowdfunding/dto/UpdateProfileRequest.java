@@ -12,6 +12,9 @@ public record UpdateProfileRequest(
         @NotBlank(message = "El correo es obligatorio")
         @Email(message = "El correo no tiene un formato válido")
         @Size(max = 255, message = "El correo no puede superar 255 caracteres")
-        String email
+        String email,
+
+        /** HU-S01: contraseña actual de la cuenta; se valida en el servicio para responder un error genérico. */
+        String password
 ) {
 }
