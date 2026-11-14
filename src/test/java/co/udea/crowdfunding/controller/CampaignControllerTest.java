@@ -48,7 +48,7 @@ class CampaignControllerTest {
     @Test
     void publish_returnsCreatedWithTheNewCampaign() {
         CreateCampaignRequest request = new CreateCampaignRequest("Título", "Descripción",
-                new BigDecimal("1000000"), DEADLINE, CATEGORY_ID, null, null);
+                new BigDecimal("1000000"), DEADLINE, CATEGORY_ID, null, null, "123456");
         CampaignResponse created = response();
         when(campaignService.create(USER_ID, request)).thenReturn(created);
 
@@ -60,7 +60,7 @@ class CampaignControllerTest {
 
     @Test
     void update_returnsOkWithTheUpdatedCampaign() {
-        UpdateCampaignRequest request = new UpdateCampaignRequest("Título", "Descripción", null, null, null, null, null);
+        UpdateCampaignRequest request = new UpdateCampaignRequest("Título", "Descripción", null, null, null, null, null, "123456");
         CampaignResponse updated = response();
         when(campaignService.update(USER_ID, CAMPAIGN_ID, request)).thenReturn(updated);
 

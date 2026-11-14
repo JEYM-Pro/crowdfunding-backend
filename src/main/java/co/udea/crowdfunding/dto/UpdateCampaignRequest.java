@@ -41,6 +41,18 @@ public record UpdateCampaignRequest(
         UUID categoryId,
 
         /** Las recompensas no se pueden modificar: si llegan, el servicio rechaza la edición (409). */
-        List<RewardRequest> rewards
+        List<RewardRequest> rewards,
+
+        /**
+         * HU-S04: contraseña de campaña. Se valida en el servicio (y no aquí) para responder
+         * siempre el mismo error genérico, tanto si falta como si es incorrecta.
+         */
+        String pin
 ) {
+
+    /** El PIN no debe aparecer en registros ni en trazas. */
+    @Override
+    public String toString() {
+        return "UpdateCampaignRequest[title=" + title + ", pin=****]";
+    }
 }

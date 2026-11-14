@@ -48,6 +48,16 @@ class GlobalExceptionHandlerCampaignTest {
     }
 
     @Test
+    void invalidCampaignPin_isBadRequestWithAGenericMessage() {
+        ResponseEntity<ApiError> response =
+                handler.handleInvalidCampaignPin(new InvalidCampaignPinException());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody().message())
+                .isEqualTo("No se pudo verificar la contraseña de campaña. Revísala e inténtalo de nuevo.");
+    }
+
+    @Test
     void unreadableBody_isBadRequest() {
         ResponseEntity<ApiError> response =
                 handler.handleUnreadableBody(mock(HttpMessageNotReadableException.class));
