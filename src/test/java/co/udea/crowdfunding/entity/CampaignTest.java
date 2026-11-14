@@ -37,7 +37,7 @@ class CampaignTest {
     @Test
     void publish_withNullImages_usesEmptyList() {
         Campaign campaign = Campaign.publish(OWNER_ID, "T", "D", BigDecimal.TEN, NOW.plus(1, ChronoUnit.DAYS),
-                CATEGORY_ID, null, null, NOW);
+                CATEGORY_ID, null, null, "hash", NOW);
 
         assertThat(campaign.getImages()).isEmpty();
     }
@@ -128,7 +128,7 @@ class CampaignTest {
         assertThat(newCampaign().getRewards().get(0).getStock()).isEqualTo(12);
 
         Campaign withoutRewards = Campaign.publish(OWNER_ID, "T", "D", BigDecimal.TEN,
-                NOW.plus(1, ChronoUnit.DAYS), CATEGORY_ID, null, null, NOW);
+                NOW.plus(1, ChronoUnit.DAYS), CATEGORY_ID, null, null, "hash", NOW);
         assertThat(withoutRewards.getRewards()).isEmpty();
     }
 
@@ -171,7 +171,7 @@ class CampaignTest {
     private Campaign newCampaign() {
         return Campaign.publish(OWNER_ID, "Título", "Descripción", new BigDecimal("1000000"),
                 NOW.plus(30, ChronoUnit.DAYS), CATEGORY_ID, new ArrayList<>(List.of("https://img.test/1.png")),
-                List.of(new Reward("Taza", "Pieza única", new BigDecimal("50000"), 12)), NOW);
+                List.of(new Reward("Taza", "Pieza única", new BigDecimal("50000"), 12)), "pin-hash", NOW);
     }
 
     private Campaign newCampaignWithContributions() {

@@ -53,6 +53,7 @@ API REST de la plataforma de Crowdfunding (CodeFactory UdeA), construida con Spr
 | Administración de usuarios | HU-21 | ✅ |
 | Preferencias de interfaz: tamaño de texto, tema e idioma | HU-22, HU-23 | ✅ |
 | Seguridad: contraseña al editar perfil | HU-S01 | ✅ |
+| Seguridad: contraseña (PIN) de campaña al publicar y al editar | HU-S02, HU-S03, HU-S04 | Hecho |
 | Categorías | — | ✅ |
 
 ---
@@ -161,6 +162,7 @@ Spring Boot permite sobreescribir cualquier propiedad con una variable de entorn
 | `V5__campaign_status_constraint.sql` | Restricción de estados de campaña (`ACTIVE`, `PAUSED`, `CLOSED`, `FINISHED`) |
 | `V6__campaign_image_url_to_text.sql` | Permite guardar imágenes como *data URL* de hasta 2 MB |
 | `V8__user_preferences.sql` | Agrega `font_size`, `theme` y `language` a `users` (HU-22, HU-23) |
+| `V9__campaign_pin.sql` | Agrega `campaigns.pin_hash` (hash BCrypt del PIN) y asigna el PIN por defecto `123456` a las campañas existentes (HU-S02 a HU-S04) |
 
 ---
 
@@ -253,8 +255,8 @@ Todos los ejemplos y esquemas completos están en Swagger. Resumen:
 | GET | `/api/campaigns?nombre=&categoria=&orden=` | Campañas activas. `orden`: `recaudo`, `fecha`, `popularidad` (por defecto, las más recientes) |
 | GET | `/api/campaigns/{id}` | Detalle con recompensas, stock, patrocinadores y número de aportes |
 | GET | `/api/campaigns/mine` | Campañas del creador (incluye pausadas y cerradas); un admin ve todas |
-| POST | `/api/campaigns` | **HU-06:** publicar campaña (queda `ACTIVE`). 201 |
-| PUT | `/api/campaigns/{id}` | **HU-07:** editar campaña activa (solo su creador) |
+| POST | `/api/campaigns` | **HU-06:** publicar campaña (queda `ACTIVE`). 201. **HU-S02:** exige `pin` (exactamente 6 dígitos) |
+| PUT | `/api/campaigns/{id}` | **HU-07:** editar campaña activa (solo su creador). **HU-S04:** exige `pin` de esa campaña; si falta o es incorrecto responde 400 con un mensaje genérico y no guarda nada |
 | PATCH | `/api/campaigns/{id}/status` | **HU-08:** cambiar estado (`ACTIVE`, `PAUSED`, `CLOSED`); solo el creador |
 | POST | `/api/campaigns/{id}/contributions/confirm` | **HU-11/HU-12:** aportar con recompensa opcional; devuelve el comprobante (201) y lo envía por correo |
 | POST | `/api/campaigns/{id}/contributions` | **HU-10:** mismo proceso, con respuesta en texto |
@@ -288,6 +290,12 @@ Body de un aporte: `{ "amount": 60000, "rewardId": "uuid-opcional" }`.
 - Solo el creador puede editar o cambiar el estado de su campaña (403 si no).
 - Si la campaña ya recibió aportes, **la meta y la fecha límite quedan bloqueadas** (409).
 - Una campaña pausada o cerrada no recibe aportes.
+
+**Contraseña de campaña (HU-S02, HU-S03, HU-S04)**
+- Al publicar, `pin` es obligatorio y debe ser de exactamente 6 dígitos (400 con el formato requerido si no). Se guarda solo el **hash BCrypt** en `campaigns.pin_hash`; nunca se devuelve en las respuestas, y los DTO ocultan el PIN en su `toString` para que no llegue a los registros.
+- Cada campaña tiene su propio hash, así que el PIN de otra campaña (aunque sea del mismo creador) no sirve (HU-S03).
+- Al editar, el orden de verificación es: campaña existente, **creador** (403), campaña **activa** (409), **PIN** (400) y después las demás reglas. Un PIN vacío, incorrecto o de otra campaña da el mismo mensaje genérico, sin revelar cuál falló.
+- Las campañas anteriores a la migración V9 quedan con el PIN por defecto `123456` (medida para los datos de prueba). Cambiar el PIN después de publicar no está en el alcance de las HU actuales.
 
 **Aportes (HU-10 a HU-12)** — validaciones en este orden:
 1. Monto mayor a 0.
