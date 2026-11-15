@@ -73,6 +73,10 @@ public class Campaign {
     @Column(name = "user_id", nullable = false)
     private UUID userId;
 
+    /** HU-S02: hash BCrypt de la contraseña de campaña (PIN de 6 dígitos). Nunca se expone ni se registra. */
+    @Column(name = "pin_hash", nullable = false, length = 100)
+    private String pinHash;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -91,6 +95,7 @@ public class Campaign {
                                    UUID categoryId,
                                    List<String> images,
                                    List<Reward> rewards,
+                                   String pinHash,
                                    Instant now) {
         Campaign campaign = new Campaign();
         campaign.userId = creatorId;
@@ -101,6 +106,7 @@ public class Campaign {
         campaign.categoryId = categoryId;
         campaign.images = images == null ? new ArrayList<>() : new ArrayList<>(images);
         campaign.rewards = rewards == null ? new ArrayList<>() : new ArrayList<>(rewards);
+        campaign.pinHash = pinHash;
         campaign.status = CampaignStatus.ACTIVE;
         campaign.raised = BigDecimal.ZERO;
         campaign.createdAt = now;
@@ -170,6 +176,7 @@ public class Campaign {
     public List<String> getImages() { return Collections.unmodifiableList(images); }
     public List<Reward> getRewards() { return Collections.unmodifiableList(rewards); }
     public UUID getUserId() { return userId; }
+    public String getPinHash() { return pinHash; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
 

@@ -21,6 +21,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
@@ -76,14 +77,15 @@ class CampaignContributionConfirmationTest {
     @BeforeEach
     void setUp() {
         service = new CampaignService(campaignRepository, categoryRepository, statusHistoryRepository,
-                userRepository, transactionRepository, Clock.fixed(NOW, ZoneOffset.UTC), milestoneService);
+                userRepository, transactionRepository, Clock.fixed(NOW, ZoneOffset.UTC), milestoneService,
+                new BCryptPasswordEncoder());
         ReflectionTestUtils.setField(service, "contributionEmailService", contributionEmailService);
 
         reward = new Reward("Camiseta oficial", "Camiseta del proyecto", new BigDecimal("50000"), 3);
         ReflectionTestUtils.setField(reward, "id", REWARD_ID);
 
         campaign = Campaign.publish(CREATOR_ID, "Huerta comunitaria", "Descripción", new BigDecimal("1000000"),
-                NOW.plus(30, ChronoUnit.DAYS), CATEGORY_ID, List.of(), List.of(reward), NOW.minus(1, ChronoUnit.DAYS));
+                NOW.plus(30, ChronoUnit.DAYS), CATEGORY_ID, List.of(), List.of(reward), "hash", NOW.minus(1, ChronoUnit.DAYS));
         ReflectionTestUtils.setField(campaign, "id", CAMPAIGN_ID);
 
         sponsor = new User("Beto Patrocinador", "beto@test.com", "hash");

@@ -35,6 +35,12 @@ public class GlobalExceptionHandler {
                 .body(new ApiError(ex.getMessage(), Map.of()));
     }
 
+    @ExceptionHandler(InvalidCampaignPinException.class)
+    public ResponseEntity<ApiError> handleInvalidCampaignPin(InvalidCampaignPinException ex) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(new ApiError(ex.getMessage(), Map.of()));
+    }
+
     @ExceptionHandler(InvalidCampaignException.class)
     public ResponseEntity<ApiError> handleInvalidCampaign(InvalidCampaignException ex) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)

@@ -11,6 +11,7 @@ import java.util.stream.Collectors;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Sort;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -30,6 +31,7 @@ import co.udea.crowdfunding.exception.CampaignAccessDeniedException;
 import co.udea.crowdfunding.exception.CampaignNotEditableException;
 import co.udea.crowdfunding.exception.CampaignNotFoundException;
 import co.udea.crowdfunding.exception.InvalidCampaignException;
+import co.udea.crowdfunding.exception.InvalidCampaignPinException;
 import co.udea.crowdfunding.exception.InvalidContributionException;
 import co.udea.crowdfunding.repository.CampaignRepository;
 import co.udea.crowdfunding.repository.CampaignStatusHistoryRepository;
@@ -61,6 +63,7 @@ public class CampaignService {
     private final TransactionRepository transactionRepository;
     private final Clock clock;
     private final CampaignMilestoneService milestoneService;
+    private final PasswordEncoder passwordEncoder;
 
     public CampaignService(CampaignRepository campaignRepository,
             CategoryRepository categoryRepository,
@@ -68,7 +71,8 @@ public class CampaignService {
             UserRepository userRepository,
             TransactionRepository transactionRepository,
             Clock clock,
-            CampaignMilestoneService milestoneService) {
+            CampaignMilestoneService milestoneService,
+            PasswordEncoder passwordEncoder) {
         this.campaignRepository = campaignRepository;
         this.categoryRepository = categoryRepository;
         this.statusHistoryRepository = statusHistoryRepository;
@@ -76,6 +80,7 @@ public class CampaignService {
         this.transactionRepository = transactionRepository;
         this.clock = clock;
         this.milestoneService = milestoneService;
+        this.passwordEncoder = passwordEncoder;
     }
 
     @Transactional
@@ -105,6 +110,7 @@ public class CampaignService {
                 category.getId(),
                 cleanImages(request.images()),
                 toRewards(request.rewards()),
+                passwordEncoder.encode(request.pin()),
                 now));
 
         statusHistoryRepository.save(
@@ -126,6 +132,7 @@ public class CampaignService {
         if (!campaign.isActive()) {
             throw new CampaignNotEditableException(NOT_ACTIVE_MESSAGE);
         }
+        verifyCampaignPin(campaign, request.pin());
         if (request.rewards() != null && !request.rewards().isEmpty()) {
             throw new CampaignNotEditableException(REWARDS_LOCKED_MESSAGE);
         }
@@ -274,6 +281,17 @@ public class CampaignService {
         return categoryRepository.findAllByOrderByNameAsc().stream()
                 .findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("No hay categorías disponibles en el sistema."));
+    }
+
+    /**
+     * HU-S04 / HU-S03: el PIN se compara solo contra el hash de esta campaña.
+     * Vacío, incorrecto o de otra campaña producen el mismo error genérico.
+     */
+    private void verifyCampaignPin(Campaign campaign, String pin) {
+        if (pin == null || pin.isBlank() || campaign.getPinHash() == null
+                || !passwordEncoder.matches(pin, campaign.getPinHash())) {
+            throw new InvalidCampaignPinException();
+        }
     }
 
     private Campaign findCampaign(UUID campaignId) {
