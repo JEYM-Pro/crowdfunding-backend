@@ -14,6 +14,11 @@ import co.udea.crowdfunding.exception.CampaignNotEditableException;
 import co.udea.crowdfunding.exception.CampaignNotFoundException;
 import co.udea.crowdfunding.exception.InvalidCampaignException;
 import co.udea.crowdfunding.exception.InvalidCampaignPinException;
+import co.udea.crowdfunding.exception.InvalidCloseCredentialsException;
+import co.udea.crowdfunding.exception.VerificationLockedException;
+import co.udea.crowdfunding.entity.VerificationAttempt;
+import co.udea.crowdfunding.repository.VerificationAttemptRepository;
+import co.udea.crowdfunding.repository.VerificationLockoutRepository;
 import co.udea.crowdfunding.repository.CampaignRepository;
 import co.udea.crowdfunding.repository.CampaignStatusHistoryRepository;
 import co.udea.crowdfunding.repository.CategoryRepository;
@@ -60,6 +65,7 @@ class CampaignServiceTest {
     private static final UUID CATEGORY_ID = UUID.randomUUID();
     private static final UUID CAMPAIGN_ID = UUID.randomUUID();
     private static final BigDecimal GOAL = new BigDecimal("1000000");
+    private static final String OWNER_PASSWORD = "Clave123*";
 
     @Mock
     private CampaignRepository campaignRepository;
@@ -73,6 +79,10 @@ class CampaignServiceTest {
     private TransactionRepository transactionRepository;
     @Mock
     private CampaignMilestoneService milestoneService;
+    @Mock
+    private VerificationAttemptRepository verificationAttemptRepository;
+    @Mock
+    private VerificationLockoutRepository verificationLockoutRepository;
 
     private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder(4);
 
@@ -83,7 +93,8 @@ class CampaignServiceTest {
     void setUp() {
         service = new CampaignService(campaignRepository, categoryRepository, statusHistoryRepository,
                 userRepository, transactionRepository, Clock.fixed(NOW, ZoneOffset.UTC), milestoneService,
-                passwordEncoder);
+                passwordEncoder, new VerificationAttemptService(verificationAttemptRepository,
+                        verificationLockoutRepository, Clock.fixed(NOW, ZoneOffset.UTC), 5, 15));
         category = new Category("Tecnología");
         ReflectionTestUtils.setField(category, "id", CATEGORY_ID);
         stubUser("creator");
@@ -666,8 +677,116 @@ class CampaignServiceTest {
     }
 
     // =====================================================================
+    // HU-S05: cerrar campaña con PIN y contraseña de la cuenta
+    // =====================================================================
+
+    @Test
+    void close_withPinAndPassword_closesTheCampaignAndRecordsHistory() {
+        Campaign campaign = stubCampaign(false);
+        stubOwnerWithPassword();
+        stubSaveCampaign();
+
+        CampaignResponse response = service.updateCampaignStatus(
+                CAMPAIGN_ID, CampaignStatus.CLOSED, USER_ID, "123456", OWNER_PASSWORD);
+
+        assertThat(response.status()).isEqualTo(CampaignStatus.CLOSED);
+        assertThat(campaign.getStatus()).isEqualTo(CampaignStatus.CLOSED);
+        ArgumentCaptor<CampaignStatusHistory> history = ArgumentCaptor.forClass(CampaignStatusHistory.class);
+        verify(statusHistoryRepository).save(history.capture());
+        assertThat(history.getValue().getFromStatus()).isEqualTo(CampaignStatus.ACTIVE);
+        assertThat(history.getValue().getToStatus()).isEqualTo(CampaignStatus.CLOSED);
+    }
+
+    /** Un PIN o una contraseña incorrectos dan el mismo error, sin revelar cuál falló. */
+    @ParameterizedTest
+    @ValueSource(strings = {"wrongPin", "wrongPassword", "bothWrong", "bothEmpty"})
+    void close_withAnyWrongCredential_keepsTheStatusWithTheSameGenericError(String scenario) {
+        Campaign campaign = stubCampaign(false);
+        stubOwnerWithPassword();
+        String pin = switch (scenario) {
+            case "wrongPin", "bothWrong" -> "000000";
+            case "bothEmpty" -> "";
+            default -> "123456";
+        };
+        String password = switch (scenario) {
+            case "wrongPassword", "bothWrong" -> "otraClave";
+            case "bothEmpty" -> null;
+            default -> OWNER_PASSWORD;
+        };
+
+        assertThatThrownBy(() -> service.updateCampaignStatus(
+                CAMPAIGN_ID, CampaignStatus.CLOSED, USER_ID, pin, password))
+                .isInstanceOf(InvalidCloseCredentialsException.class)
+                .hasMessage(new InvalidCloseCredentialsException().getMessage());
+
+        assertThat(campaign.getStatus()).isEqualTo(CampaignStatus.ACTIVE);
+        verify(campaignRepository, never()).save(any(Campaign.class));
+        verify(statusHistoryRepository, never()).save(any(CampaignStatusHistory.class));
+    }
+
+    @Test
+    void close_byNonOwnerWithTheCorrectCredentials_isDenied() {
+        Campaign campaign = stubCampaign(false);
+        stubOwnerWithPassword();
+
+        assertThatThrownBy(() -> service.updateCampaignStatus(
+                CAMPAIGN_ID, CampaignStatus.CLOSED, OTHER_USER_ID, "123456", OWNER_PASSWORD))
+                .isInstanceOf(CampaignAccessDeniedException.class);
+        assertThat(campaign.getStatus()).isEqualTo(CampaignStatus.ACTIVE);
+    }
+
+    @Test
+    void pause_doesNotAskForCredentials() {
+        Campaign campaign = stubCampaign(false);
+        stubSaveCampaign();
+
+        service.updateCampaignStatus(CAMPAIGN_ID, CampaignStatus.PAUSED, USER_ID, null, null);
+
+        assertThat(campaign.getStatus()).isEqualTo(CampaignStatus.PAUSED);
+    }
+
+    // =====================================================================
+    // HU-S07: verificación bloqueada por intentos fallidos
+    // =====================================================================
+
+    @Test
+    void update_whileThePinVerificationIsLocked_isRejectedWithoutCheckingThePin() {
+        stubCampaign(false);
+        VerificationAttempt locked = new VerificationAttempt(USER_ID, "CAMPAIGN:" + CAMPAIGN_ID, NOW);
+        locked.lockUntil(NOW.plus(10, ChronoUnit.MINUTES), NOW);
+        when(verificationAttemptRepository.findByUserIdAndScope(USER_ID, "CAMPAIGN:" + CAMPAIGN_ID))
+                .thenReturn(Optional.of(locked));
+
+        assertThatThrownBy(() -> service.update(USER_ID, CAMPAIGN_ID,
+                new UpdateCampaignRequest("Título", "Descripción", null, null, null, null, null, "123456")))
+                .isInstanceOf(VerificationLockedException.class)
+                .hasMessage("Demasiados intentos fallidos. Podrás intentarlo de nuevo en 10 minutos.");
+        verify(campaignRepository, never()).save(any(Campaign.class));
+    }
+
+    @Test
+    void update_withAWrongPin_countsTheFailedAttempt() {
+        stubCampaign(false);
+
+        assertThatThrownBy(() -> service.update(USER_ID, CAMPAIGN_ID,
+                new UpdateCampaignRequest("Título", "Descripción", null, null, null, null, null, "000000")))
+                .isInstanceOf(InvalidCampaignPinException.class);
+
+        ArgumentCaptor<VerificationAttempt> attempt = ArgumentCaptor.forClass(VerificationAttempt.class);
+        verify(verificationAttemptRepository).save(attempt.capture());
+        assertThat(attempt.getValue().getScope()).isEqualTo("CAMPAIGN:" + CAMPAIGN_ID);
+        assertThat(attempt.getValue().getFailedAttempts()).isEqualTo(1);
+    }
+
+    // =====================================================================
     // Helpers
     // =====================================================================
+
+    private void stubOwnerWithPassword() {
+        User owner = new User("Ana Pérez", "ana@correo.com", passwordEncoder.encode(OWNER_PASSWORD));
+        owner.setRole("creator");
+        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(owner));
+    }
 
     private User stubUser(String role) {
         User user = new User("Ana Pérez", "ana@correo.com", "hash");

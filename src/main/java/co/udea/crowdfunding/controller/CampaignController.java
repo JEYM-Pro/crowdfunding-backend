@@ -99,7 +99,8 @@ public class CampaignController {
             @RequestBody UpdateCampaignStatusRequest request,
             @AuthenticationPrincipal UserPrincipal principal) {
 
-        CampaignResponse response = campaignService.updateCampaignStatus(id, request.getStatus(), principal.getId());
+        CampaignResponse response = campaignService.updateCampaignStatus(
+                id, request.getStatus(), principal.getId(), request.getPin(), request.getPassword());
         return ResponseEntity.ok(response);
     }
 
@@ -111,7 +112,7 @@ public class CampaignController {
             @AuthenticationPrincipal UserPrincipal principal) {
 
         campaignService.makeContributionWithConfirmation(
-                id, request.getAmount(), request.getRewardId(), principal.getId());
+                id, request.getAmount(), request.getRewardId(), principal.getId(), request.getPassword());
         return ResponseEntity.ok("Aporte realizado exitosamente.");
     }
 
@@ -124,7 +125,7 @@ public class CampaignController {
 
         return ResponseEntity.status(HttpStatus.CREATED).body(
                 campaignService.makeContributionWithConfirmation(
-                        id, request.amount(), request.rewardId(), principal.getId()));
+                        id, request.amount(), request.rewardId(), principal.getId(), request.password()));
     }
 
     @GetMapping("/{id}/earnings")
