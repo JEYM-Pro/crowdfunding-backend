@@ -53,6 +53,12 @@ public class GlobalExceptionHandler {
                 .body(new ApiError(ex.getMessage(), Map.of()));
     }
 
+    @ExceptionHandler(NotificationNotFoundException.class)
+    public ResponseEntity<ApiError> handleNotificationNotFound(NotificationNotFoundException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(new ApiError(ex.getMessage(), Map.of()));
+    }
+
     @ExceptionHandler(CampaignAccessDeniedException.class)
     public ResponseEntity<ApiError> handleCampaignAccessDenied(CampaignAccessDeniedException ex) {
         return ResponseEntity.status(HttpStatus.FORBIDDEN)
