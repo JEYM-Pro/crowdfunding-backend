@@ -41,6 +41,17 @@ public record CreateCampaignRequest(
              String> images,
 
         @Size(max = 6, message = "Una campaña puede tener máximo 6 recompensas")
-        List<@Valid RewardRequest> rewards
+        List<@Valid RewardRequest> rewards,
+
+        /** HU-S02: contraseña de campaña, PIN de exactamente 6 dígitos numéricos. */
+        @NotBlank(message = "La contraseña de campaña es obligatoria.")
+        @Pattern(regexp = "^\\d{6}$", message = "La contraseña de campaña debe ser un PIN de exactamente 6 dígitos numéricos.")
+        String pin
 ) {
+
+    /** El PIN no debe aparecer en registros ni en trazas. */
+    @Override
+    public String toString() {
+        return "CreateCampaignRequest[title=" + title + ", pin=****]";
+    }
 }

@@ -40,15 +40,18 @@ public class UserService {
     private final TransactionRepository transactionRepository;
     private final CampaignRepository campaignRepository;
     private final PasswordEncoder passwordEncoder;
+    private final VerificationAttemptService verificationAttemptService;
 
     public UserService(UserRepository userRepository,
                         TransactionRepository transactionRepository,
                         CampaignRepository campaignRepository,
-                        PasswordEncoder passwordEncoder) {
+                        PasswordEncoder passwordEncoder,
+                        VerificationAttemptService verificationAttemptService) {
         this.userRepository = userRepository;
         this.transactionRepository = transactionRepository;
         this.campaignRepository = campaignRepository;
         this.passwordEncoder = passwordEncoder;
+        this.verificationAttemptService = verificationAttemptService;
     }
 
     @Transactional
@@ -76,11 +79,11 @@ public class UserService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new IllegalArgumentException("Usuario no encontrado"));
 
-        // HU-S01: sin contraseña correcta no se aplica ningún cambio.
-        if (request.password() == null || request.password().isBlank()
-                || !passwordEncoder.matches(request.password(), user.getPassword())) {
-            throw new InvalidPasswordException();
-        }
+        // HU-S01: sin contraseña correcta no se aplica ningún cambio (HU-S07: con límite de intentos).
+        verificationAttemptService.verify(userId, VerificationScope.account(),
+                () -> request.password() != null && !request.password().isBlank()
+                        && passwordEncoder.matches(request.password(), user.getPassword()))
+                .orThrow(InvalidPasswordException::new);
 
         String newEmail = request.email().trim().toLowerCase();
 

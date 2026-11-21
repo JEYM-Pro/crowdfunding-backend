@@ -10,17 +10,22 @@ import co.udea.crowdfunding.exception.CampaignNotEditableException;
 import co.udea.crowdfunding.exception.CampaignNotFoundException;
 import co.udea.crowdfunding.exception.ContributionProcessingException;
 import co.udea.crowdfunding.exception.InvalidContributionException;
+import co.udea.crowdfunding.exception.InvalidPasswordException;
 import co.udea.crowdfunding.repository.CampaignRepository;
 import co.udea.crowdfunding.repository.CampaignStatusHistoryRepository;
 import co.udea.crowdfunding.repository.CategoryRepository;
 import co.udea.crowdfunding.repository.TransactionRepository;
 import co.udea.crowdfunding.repository.UserRepository;
+import co.udea.crowdfunding.repository.VerificationAttemptRepository;
+import co.udea.crowdfunding.repository.VerificationLockoutRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
@@ -52,6 +57,7 @@ class CampaignContributionConfirmationTest {
     private static final UUID CATEGORY_ID = UUID.randomUUID();
     private static final UUID REWARD_ID = UUID.randomUUID();
     private static final UUID TRANSACTION_ID = UUID.randomUUID();
+    private static final String SPONSOR_PASSWORD = "Clave123*";
 
     @Mock
     private CampaignRepository campaignRepository;
@@ -67,6 +73,12 @@ class CampaignContributionConfirmationTest {
     private ContributionEmailService contributionEmailService;
     @Mock
     private CampaignMilestoneService milestoneService;
+    @Mock
+    private VerificationAttemptRepository verificationAttemptRepository;
+    @Mock
+    private VerificationLockoutRepository verificationLockoutRepository;
+
+    private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder(4);
 
     private CampaignService service;
     private Campaign campaign;
@@ -76,17 +88,19 @@ class CampaignContributionConfirmationTest {
     @BeforeEach
     void setUp() {
         service = new CampaignService(campaignRepository, categoryRepository, statusHistoryRepository,
-                userRepository, transactionRepository, Clock.fixed(NOW, ZoneOffset.UTC), milestoneService);
+                userRepository, transactionRepository, Clock.fixed(NOW, ZoneOffset.UTC), milestoneService,
+                passwordEncoder, new VerificationAttemptService(verificationAttemptRepository,
+                        verificationLockoutRepository, Clock.fixed(NOW, ZoneOffset.UTC), 5, 15));
         ReflectionTestUtils.setField(service, "contributionEmailService", contributionEmailService);
 
         reward = new Reward("Camiseta oficial", "Camiseta del proyecto", new BigDecimal("50000"), 3);
         ReflectionTestUtils.setField(reward, "id", REWARD_ID);
 
         campaign = Campaign.publish(CREATOR_ID, "Huerta comunitaria", "Descripción", new BigDecimal("1000000"),
-                NOW.plus(30, ChronoUnit.DAYS), CATEGORY_ID, List.of(), List.of(reward), NOW.minus(1, ChronoUnit.DAYS));
+                NOW.plus(30, ChronoUnit.DAYS), CATEGORY_ID, List.of(), List.of(reward), "hash", NOW.minus(1, ChronoUnit.DAYS));
         ReflectionTestUtils.setField(campaign, "id", CAMPAIGN_ID);
 
-        sponsor = new User("Beto Patrocinador", "beto@test.com", "hash");
+        sponsor = new User("Beto Patrocinador", "beto@test.com", passwordEncoder.encode(SPONSOR_PASSWORD));
         ReflectionTestUtils.setField(sponsor, "id", SPONSOR_ID);
         sponsor.setBalance(new BigDecimal("100000"));
     }
@@ -99,7 +113,7 @@ class CampaignContributionConfirmationTest {
         stubSaveTransaction();
 
         ContributionConfirmationResponse receipt = service.makeContributionWithConfirmation(CAMPAIGN_ID,
-                new BigDecimal("60000"), REWARD_ID, SPONSOR_ID);
+                new BigDecimal("60000"), REWARD_ID, SPONSOR_ID, SPONSOR_PASSWORD);
 
         assertThat(sponsor.getBalance()).isEqualByComparingTo("40000");
         assertThat(sponsor.getHistoric()).isEqualByComparingTo("60000");
@@ -134,7 +148,7 @@ class CampaignContributionConfirmationTest {
         stubSaveTransaction();
 
         ContributionConfirmationResponse receipt = service.makeContributionWithConfirmation(CAMPAIGN_ID,
-                new BigDecimal("25000"), null, SPONSOR_ID);
+                new BigDecimal("25000"), null, SPONSOR_ID, SPONSOR_PASSWORD);
 
         assertThat(receipt.rewardId()).isNull();
         assertThat(receipt.rewardName()).isNull();
@@ -149,7 +163,7 @@ class CampaignContributionConfirmationTest {
         stubLockedLookups();
         stubSaveTransaction();
 
-        service.makeContributionWithConfirmation(CAMPAIGN_ID, new BigDecimal("50000"), REWARD_ID, SPONSOR_ID);
+        service.makeContributionWithConfirmation(CAMPAIGN_ID, new BigDecimal("50000"), REWARD_ID, SPONSOR_ID, SPONSOR_PASSWORD);
 
         assertThat(reward.getStock()).isZero();
     }
@@ -161,7 +175,7 @@ class CampaignContributionConfirmationTest {
         stubLockedLookups();
 
         assertThatThrownBy(() -> service.makeContributionWithConfirmation(
-                CAMPAIGN_ID, new BigDecimal("30000"), REWARD_ID, SPONSOR_ID))
+                CAMPAIGN_ID, new BigDecimal("30000"), REWARD_ID, SPONSOR_ID, SPONSOR_PASSWORD))
                 .isInstanceOf(InvalidContributionException.class)
                 .hasMessageContaining("50000");
 
@@ -174,7 +188,7 @@ class CampaignContributionConfirmationTest {
         stubLockedLookups();
 
         assertThatThrownBy(() -> service.makeContributionWithConfirmation(
-                CAMPAIGN_ID, new BigDecimal("60000"), REWARD_ID, SPONSOR_ID))
+                CAMPAIGN_ID, new BigDecimal("60000"), REWARD_ID, SPONSOR_ID, SPONSOR_PASSWORD))
                 .isInstanceOf(InvalidContributionException.class)
                 .hasMessage("La recompensa seleccionada está agotada.");
 
@@ -186,7 +200,7 @@ class CampaignContributionConfirmationTest {
         stubLockedLookups();
 
         assertThatThrownBy(() -> service.makeContributionWithConfirmation(
-                CAMPAIGN_ID, new BigDecimal("60000"), UUID.randomUUID(), SPONSOR_ID))
+                CAMPAIGN_ID, new BigDecimal("60000"), UUID.randomUUID(), SPONSOR_ID, SPONSOR_PASSWORD))
                 .isInstanceOf(InvalidContributionException.class)
                 .hasMessage("La recompensa seleccionada no pertenece a esta campaña.");
 
@@ -199,7 +213,7 @@ class CampaignContributionConfirmationTest {
         stubLockedLookups();
 
         assertThatThrownBy(() -> service.makeContributionWithConfirmation(
-                CAMPAIGN_ID, new BigDecimal("60000"), null, SPONSOR_ID))
+                CAMPAIGN_ID, new BigDecimal("60000"), null, SPONSOR_ID, SPONSOR_PASSWORD))
                 .isInstanceOf(InvalidContributionException.class)
                 .hasMessage("Saldo insuficiente para realizar el aporte.");
 
@@ -213,7 +227,7 @@ class CampaignContributionConfirmationTest {
     @Test
     void zeroNegativeOrMissingAmount_isRejectedBeforeTouchingTheDatabase() {
         for (BigDecimal amount : new BigDecimal[] { BigDecimal.ZERO, new BigDecimal("-5"), null }) {
-            assertThatThrownBy(() -> service.makeContributionWithConfirmation(CAMPAIGN_ID, amount, null, SPONSOR_ID))
+            assertThatThrownBy(() -> service.makeContributionWithConfirmation(CAMPAIGN_ID, amount, null, SPONSOR_ID, SPONSOR_PASSWORD))
                     .isInstanceOf(InvalidContributionException.class)
                     .hasMessage("El monto a aportar debe ser mayor a cero.");
         }
@@ -226,7 +240,7 @@ class CampaignContributionConfirmationTest {
         when(campaignRepository.findByIdForUpdate(CAMPAIGN_ID)).thenReturn(Optional.of(campaign));
 
         assertThatThrownBy(() -> service.makeContributionWithConfirmation(
-                CAMPAIGN_ID, new BigDecimal("60000"), null, SPONSOR_ID))
+                CAMPAIGN_ID, new BigDecimal("60000"), null, SPONSOR_ID, SPONSOR_PASSWORD))
                 .isInstanceOf(CampaignNotEditableException.class)
                 .hasMessage(CampaignService.CONTRIBUTION_NOT_ACTIVE_MESSAGE);
 
@@ -238,7 +252,7 @@ class CampaignContributionConfirmationTest {
         when(campaignRepository.findByIdForUpdate(CAMPAIGN_ID)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.makeContributionWithConfirmation(
-                CAMPAIGN_ID, new BigDecimal("60000"), null, SPONSOR_ID))
+                CAMPAIGN_ID, new BigDecimal("60000"), null, SPONSOR_ID, SPONSOR_PASSWORD))
                 .isInstanceOf(CampaignNotFoundException.class);
     }
 
@@ -248,7 +262,7 @@ class CampaignContributionConfirmationTest {
         when(userRepository.findByIdForUpdate(SPONSOR_ID)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.makeContributionWithConfirmation(
-                CAMPAIGN_ID, new BigDecimal("60000"), null, SPONSOR_ID))
+                CAMPAIGN_ID, new BigDecimal("60000"), null, SPONSOR_ID, SPONSOR_PASSWORD))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("Usuario no encontrado.");
     }
@@ -263,9 +277,36 @@ class CampaignContributionConfirmationTest {
                 .when(contributionEmailService).sendConfirmation(any(), any());
 
         assertThatThrownBy(() -> service.makeContributionWithConfirmation(
-                CAMPAIGN_ID, new BigDecimal("60000"), REWARD_ID, SPONSOR_ID))
+                CAMPAIGN_ID, new BigDecimal("60000"), REWARD_ID, SPONSOR_ID, SPONSOR_PASSWORD))
                 .isInstanceOf(ContributionProcessingException.class)
                 .hasMessage("SMTP caído");
+    }
+
+    // ------------------------------------------------- HU-S06: contraseña
+
+    @Test
+    void wrongPassword_rejectsTheContributionWithoutTouchingAnything() {
+        stubLockedLookups();
+
+        assertThatThrownBy(() -> service.makeContributionWithConfirmation(
+                CAMPAIGN_ID, new BigDecimal("60000"), REWARD_ID, SPONSOR_ID, "otraClave"))
+                .isInstanceOf(InvalidPasswordException.class);
+
+        assertNothingChanged();
+        assertThat(reward.getStock()).isEqualTo(3);
+    }
+
+    @Test
+    void missingPassword_rejectsWithTheSameGenericError() {
+        for (String password : new String[] {null, "", "   "}) {
+            stubLockedLookups();
+
+            assertThatThrownBy(() -> service.makeContributionWithConfirmation(
+                    CAMPAIGN_ID, new BigDecimal("60000"), null, SPONSOR_ID, password))
+                    .isInstanceOf(InvalidPasswordException.class)
+                    .hasMessage(new InvalidPasswordException().getMessage());
+        }
+        assertNothingChanged();
     }
 
     // --------------------------------------------------------------- helpers

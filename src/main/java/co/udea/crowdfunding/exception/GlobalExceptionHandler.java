@@ -1,6 +1,7 @@
 package co.udea.crowdfunding.exception;
 
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -35,6 +36,26 @@ public class GlobalExceptionHandler {
                 .body(new ApiError(ex.getMessage(), Map.of()));
     }
 
+    @ExceptionHandler(InvalidCampaignPinException.class)
+    public ResponseEntity<ApiError> handleInvalidCampaignPin(InvalidCampaignPinException ex) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(new ApiError(ex.getMessage(), Map.of()));
+    }
+
+    @ExceptionHandler(InvalidCloseCredentialsException.class)
+    public ResponseEntity<ApiError> handleInvalidCloseCredentials(InvalidCloseCredentialsException ex) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(new ApiError(ex.getMessage(), Map.of()));
+    }
+
+    @ExceptionHandler(VerificationLockedException.class)
+    public ResponseEntity<ApiError> handleVerificationLocked(VerificationLockedException ex) {
+        String retryAfter = String.valueOf(ex.getRetryAfterSeconds());
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header(HttpHeaders.RETRY_AFTER, retryAfter)
+                .body(new ApiError(ex.getMessage(), Map.of("retryAfterSeconds", retryAfter)));
+    }
+
     @ExceptionHandler(InvalidCampaignException.class)
     public ResponseEntity<ApiError> handleInvalidCampaign(InvalidCampaignException ex) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
@@ -43,6 +64,12 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(CampaignNotFoundException.class)
     public ResponseEntity<ApiError> handleCampaignNotFound(CampaignNotFoundException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(new ApiError(ex.getMessage(), Map.of()));
+    }
+
+    @ExceptionHandler(NotificationNotFoundException.class)
+    public ResponseEntity<ApiError> handleNotificationNotFound(NotificationNotFoundException ex) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND)
                 .body(new ApiError(ex.getMessage(), Map.of()));
     }

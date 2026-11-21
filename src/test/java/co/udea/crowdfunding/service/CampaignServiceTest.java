@@ -13,6 +13,12 @@ import co.udea.crowdfunding.exception.CampaignAccessDeniedException;
 import co.udea.crowdfunding.exception.CampaignNotEditableException;
 import co.udea.crowdfunding.exception.CampaignNotFoundException;
 import co.udea.crowdfunding.exception.InvalidCampaignException;
+import co.udea.crowdfunding.exception.InvalidCampaignPinException;
+import co.udea.crowdfunding.exception.InvalidCloseCredentialsException;
+import co.udea.crowdfunding.exception.VerificationLockedException;
+import co.udea.crowdfunding.entity.VerificationAttempt;
+import co.udea.crowdfunding.repository.VerificationAttemptRepository;
+import co.udea.crowdfunding.repository.VerificationLockoutRepository;
 import co.udea.crowdfunding.repository.CampaignRepository;
 import co.udea.crowdfunding.repository.CampaignStatusHistoryRepository;
 import co.udea.crowdfunding.repository.CategoryRepository;
@@ -29,6 +35,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
@@ -57,6 +65,7 @@ class CampaignServiceTest {
     private static final UUID CATEGORY_ID = UUID.randomUUID();
     private static final UUID CAMPAIGN_ID = UUID.randomUUID();
     private static final BigDecimal GOAL = new BigDecimal("1000000");
+    private static final String OWNER_PASSWORD = "Clave123*";
 
     @Mock
     private CampaignRepository campaignRepository;
@@ -70,6 +79,12 @@ class CampaignServiceTest {
     private TransactionRepository transactionRepository;
     @Mock
     private CampaignMilestoneService milestoneService;
+    @Mock
+    private VerificationAttemptRepository verificationAttemptRepository;
+    @Mock
+    private VerificationLockoutRepository verificationLockoutRepository;
+
+    private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder(4);
 
     private CampaignService service;
     private Category category;
@@ -77,7 +92,9 @@ class CampaignServiceTest {
     @BeforeEach
     void setUp() {
         service = new CampaignService(campaignRepository, categoryRepository, statusHistoryRepository,
-                userRepository, transactionRepository, Clock.fixed(NOW, ZoneOffset.UTC), milestoneService);
+                userRepository, transactionRepository, Clock.fixed(NOW, ZoneOffset.UTC), milestoneService,
+                passwordEncoder, new VerificationAttemptService(verificationAttemptRepository,
+                        verificationLockoutRepository, Clock.fixed(NOW, ZoneOffset.UTC), 5, 15));
         category = new Category("Tecnología");
         ReflectionTestUtils.setField(category, "id", CATEGORY_ID);
         stubUser("creator");
@@ -159,7 +176,8 @@ class CampaignServiceTest {
         CreateCampaignRequest request = new CreateCampaignRequest("Mi campaña", "Descripción",
                 new BigDecimal("5000000"), NOW.plus(30, ChronoUnit.DAYS), CATEGORY_ID, null,
                 List.of(new RewardRequest(" Taza artesanal ", " Pieza única ", new BigDecimal("50000"), 12),
-                        new RewardRequest("Clase privada", null, new BigDecimal("120000"), 4)));
+                        new RewardRequest("Clase privada", null, new BigDecimal("120000"), 4)),
+                "123456");
 
         CampaignResponse response = service.create(USER_ID, request);
 
@@ -305,7 +323,7 @@ class CampaignServiceTest {
 
         assertThatThrownBy(() -> service.update(USER_ID, CAMPAIGN_ID, new UpdateCampaignRequest(
                 "Título", "Descripción", null, null, null, null,
-                List.of(new RewardRequest("Nueva", null, BigDecimal.TEN, 1)))))
+                List.of(new RewardRequest("Nueva", null, BigDecimal.TEN, 1)), "123456")))
                 .isInstanceOf(CampaignNotEditableException.class)
                 .hasMessage("La lista de recompensas no se puede modificar una vez publicada la campaña.");
         verify(campaignRepository, never()).save(any(Campaign.class));
@@ -317,7 +335,7 @@ class CampaignServiceTest {
         stubSaveAndCategory();
 
         CampaignResponse response = service.update(USER_ID, CAMPAIGN_ID, new UpdateCampaignRequest(
-                "Título", "Descripción", null, null, null, null, List.of()));
+                "Título", "Descripción", null, null, null, null, List.of(), "123456"));
 
         assertThat(response.rewards()).isEmpty();
     }
@@ -332,7 +350,7 @@ class CampaignServiceTest {
         when(categoryRepository.findById(otherCategoryId)).thenReturn(Optional.of(other));
 
         CampaignResponse response = service.update(USER_ID, CAMPAIGN_ID, new UpdateCampaignRequest(
-                "Título", "Descripción", null, null, null, otherCategoryId, null));
+                "Título", "Descripción", null, null, null, otherCategoryId, null, "123456"));
 
         assertThat(response.categoryId()).isEqualTo(otherCategoryId);
         assertThat(response.categoryName()).isEqualTo("Salud");
@@ -345,7 +363,7 @@ class CampaignServiceTest {
         when(categoryRepository.findById(unknown)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.update(USER_ID, CAMPAIGN_ID, new UpdateCampaignRequest(
-                "Título", "Descripción", null, null, null, unknown, null)))
+                "Título", "Descripción", null, null, null, unknown, null, "123456")))
                 .isInstanceOf(InvalidCampaignException.class)
                 .hasMessage("La categoría seleccionada no existe.");
     }
@@ -533,8 +551,242 @@ class CampaignServiceTest {
     }
 
     // =====================================================================
+    // HU-S02 / HU-S03 / HU-S04: contraseña de campaña (PIN)
+    // =====================================================================
+
+    @Test
+    void create_storesOnlyTheHashOfThePin() {
+        stubUser("creator");
+        stubCategory();
+        stubSaveCampaign();
+
+        CampaignResponse response = service.create(USER_ID, createRequest(NOW.plus(10, ChronoUnit.DAYS), null));
+
+        ArgumentCaptor<Campaign> saved = ArgumentCaptor.forClass(Campaign.class);
+        verify(campaignRepository).save(saved.capture());
+        String hash = saved.getValue().getPinHash();
+        assertThat(hash).isNotBlank().isNotEqualTo("123456");
+        assertThat(passwordEncoder.matches("123456", hash)).isTrue();
+        assertThat(response.toString()).doesNotContain(hash);
+    }
+
+    @Test
+    void create_twoCampaignsWithTheSamePin_getDifferentHashes() {
+        stubUser("creator");
+        stubCategory();
+        stubSaveCampaign();
+
+        service.create(USER_ID, createRequest(NOW.plus(10, ChronoUnit.DAYS), null));
+        service.create(USER_ID, createRequest(NOW.plus(10, ChronoUnit.DAYS), null));
+
+        ArgumentCaptor<Campaign> saved = ArgumentCaptor.forClass(Campaign.class);
+        verify(campaignRepository, org.mockito.Mockito.times(2)).save(saved.capture());
+        assertThat(saved.getAllValues().get(0).getPinHash()).isNotEqualTo(saved.getAllValues().get(1).getPinHash());
+    }
+
+    @Test
+    void update_withCorrectPin_savesTheChanges() {
+        stubCampaign(false);
+        stubSaveAndCategory();
+
+        CampaignResponse response = service.update(USER_ID, CAMPAIGN_ID,
+                new UpdateCampaignRequest("Nuevo título", "Descripción", null, null, null, null, null, "123456"));
+
+        assertThat(response.title()).isEqualTo("Nuevo título");
+        verify(campaignRepository).save(any(Campaign.class));
+    }
+
+    @Test
+    void update_withWrongPin_isRejectedAndNothingIsSaved() {
+        Campaign campaign = stubCampaign(false);
+
+        assertThatThrownBy(() -> service.update(USER_ID, CAMPAIGN_ID,
+                new UpdateCampaignRequest("Nuevo título", "Descripción", null, null, null, null, null, "654321")))
+                .isInstanceOf(InvalidCampaignPinException.class)
+                .hasMessage("No se pudo verificar la contraseña de campaña. Revísala e inténtalo de nuevo.");
+        verify(campaignRepository, never()).save(any(Campaign.class));
+        assertThat(campaign.getTitle()).isEqualTo("Título original");
+    }
+
+    @Test
+    void update_withEmptyOrMissingPin_isRejectedWithTheSameGenericError() {
+        stubCampaign(false);
+
+        for (String pin : new String[] {null, "", "   "}) {
+            assertThatThrownBy(() -> service.update(USER_ID, CAMPAIGN_ID,
+                    new UpdateCampaignRequest("Nuevo título", "Descripción", null, null, null, null, null, pin)))
+                    .isInstanceOf(InvalidCampaignPinException.class)
+                    .hasMessage("No se pudo verificar la contraseña de campaña. Revísala e inténtalo de nuevo.");
+        }
+        verify(campaignRepository, never()).save(any(Campaign.class));
+    }
+
+    /** HU-S03: el PIN de otra campaña del mismo creador no sirve. */
+    @Test
+    void update_withThePinOfAnotherCampaign_isRejected() {
+        Campaign campaignA = newCampaign(false);
+        ReflectionTestUtils.setField(campaignA, "pinHash", passwordEncoder.encode("123456"));
+        when(campaignRepository.findById(CAMPAIGN_ID)).thenReturn(Optional.of(campaignA));
+        String pinOfCampaignB = "654321";
+
+        assertThatThrownBy(() -> service.update(USER_ID, CAMPAIGN_ID,
+                new UpdateCampaignRequest("Título", "Descripción", null, null, null, null, null, pinOfCampaignB)))
+                .isInstanceOf(InvalidCampaignPinException.class);
+        verify(campaignRepository, never()).save(any(Campaign.class));
+    }
+
+    /** HU-S03: quien no es el creador es rechazado aunque conozca el PIN correcto. */
+    @Test
+    void update_byNonOwnerWithTheCorrectPin_isDenied() {
+        stubCampaign(false);
+
+        assertThatThrownBy(() -> service.update(OTHER_USER_ID, CAMPAIGN_ID,
+                new UpdateCampaignRequest("Título", "Descripción", null, null, null, null, null, "123456")))
+                .isInstanceOf(CampaignAccessDeniedException.class);
+        verify(campaignRepository, never()).save(any(Campaign.class));
+    }
+
+    @Test
+    void update_inactiveCampaignWithWrongPin_reportsNotActiveBeforeCheckingThePin() {
+        Campaign campaign = stubCampaign(false);
+        campaign.setStatus(CampaignStatus.PAUSED);
+
+        assertThatThrownBy(() -> service.update(USER_ID, CAMPAIGN_ID,
+                new UpdateCampaignRequest("Título", "Descripción", null, null, null, null, null, "000000")))
+                .isInstanceOf(CampaignNotEditableException.class)
+                .hasMessage("Solo se pueden editar campañas activas.");
+    }
+
+    @Test
+    void update_withCorrectPinButLockedGoal_stillAppliesTheContributionRule() {
+        stubCampaign(true);
+
+        assertThatThrownBy(() -> service.update(USER_ID, CAMPAIGN_ID,
+                new UpdateCampaignRequest("Título", "Descripción", null, new BigDecimal("2000000"), null, null, null, "123456")))
+                .isInstanceOf(CampaignNotEditableException.class);
+    }
+
+    @Test
+    void update_whenTheCampaignHasNoStoredPinHash_isRejected() {
+        Campaign campaign = stubCampaign(false);
+        ReflectionTestUtils.setField(campaign, "pinHash", null);
+
+        assertThatThrownBy(() -> service.update(USER_ID, CAMPAIGN_ID,
+                new UpdateCampaignRequest("Título", "Descripción", null, null, null, null, null, "123456")))
+                .isInstanceOf(InvalidCampaignPinException.class);
+    }
+
+    // =====================================================================
+    // HU-S05: cerrar campaña con PIN y contraseña de la cuenta
+    // =====================================================================
+
+    @Test
+    void close_withPinAndPassword_closesTheCampaignAndRecordsHistory() {
+        Campaign campaign = stubCampaign(false);
+        stubOwnerWithPassword();
+        stubSaveCampaign();
+
+        CampaignResponse response = service.updateCampaignStatus(
+                CAMPAIGN_ID, CampaignStatus.CLOSED, USER_ID, "123456", OWNER_PASSWORD);
+
+        assertThat(response.status()).isEqualTo(CampaignStatus.CLOSED);
+        assertThat(campaign.getStatus()).isEqualTo(CampaignStatus.CLOSED);
+        ArgumentCaptor<CampaignStatusHistory> history = ArgumentCaptor.forClass(CampaignStatusHistory.class);
+        verify(statusHistoryRepository).save(history.capture());
+        assertThat(history.getValue().getFromStatus()).isEqualTo(CampaignStatus.ACTIVE);
+        assertThat(history.getValue().getToStatus()).isEqualTo(CampaignStatus.CLOSED);
+    }
+
+    /** Un PIN o una contraseña incorrectos dan el mismo error, sin revelar cuál falló. */
+    @ParameterizedTest
+    @ValueSource(strings = {"wrongPin", "wrongPassword", "bothWrong", "bothEmpty"})
+    void close_withAnyWrongCredential_keepsTheStatusWithTheSameGenericError(String scenario) {
+        Campaign campaign = stubCampaign(false);
+        stubOwnerWithPassword();
+        String pin = switch (scenario) {
+            case "wrongPin", "bothWrong" -> "000000";
+            case "bothEmpty" -> "";
+            default -> "123456";
+        };
+        String password = switch (scenario) {
+            case "wrongPassword", "bothWrong" -> "otraClave";
+            case "bothEmpty" -> null;
+            default -> OWNER_PASSWORD;
+        };
+
+        assertThatThrownBy(() -> service.updateCampaignStatus(
+                CAMPAIGN_ID, CampaignStatus.CLOSED, USER_ID, pin, password))
+                .isInstanceOf(InvalidCloseCredentialsException.class)
+                .hasMessage(new InvalidCloseCredentialsException().getMessage());
+
+        assertThat(campaign.getStatus()).isEqualTo(CampaignStatus.ACTIVE);
+        verify(campaignRepository, never()).save(any(Campaign.class));
+        verify(statusHistoryRepository, never()).save(any(CampaignStatusHistory.class));
+    }
+
+    @Test
+    void close_byNonOwnerWithTheCorrectCredentials_isDenied() {
+        Campaign campaign = stubCampaign(false);
+        stubOwnerWithPassword();
+
+        assertThatThrownBy(() -> service.updateCampaignStatus(
+                CAMPAIGN_ID, CampaignStatus.CLOSED, OTHER_USER_ID, "123456", OWNER_PASSWORD))
+                .isInstanceOf(CampaignAccessDeniedException.class);
+        assertThat(campaign.getStatus()).isEqualTo(CampaignStatus.ACTIVE);
+    }
+
+    @Test
+    void pause_doesNotAskForCredentials() {
+        Campaign campaign = stubCampaign(false);
+        stubSaveCampaign();
+
+        service.updateCampaignStatus(CAMPAIGN_ID, CampaignStatus.PAUSED, USER_ID, null, null);
+
+        assertThat(campaign.getStatus()).isEqualTo(CampaignStatus.PAUSED);
+    }
+
+    // =====================================================================
+    // HU-S07: verificación bloqueada por intentos fallidos
+    // =====================================================================
+
+    @Test
+    void update_whileThePinVerificationIsLocked_isRejectedWithoutCheckingThePin() {
+        stubCampaign(false);
+        VerificationAttempt locked = new VerificationAttempt(USER_ID, "CAMPAIGN:" + CAMPAIGN_ID, NOW);
+        locked.lockUntil(NOW.plus(10, ChronoUnit.MINUTES), NOW);
+        when(verificationAttemptRepository.findByUserIdAndScope(USER_ID, "CAMPAIGN:" + CAMPAIGN_ID))
+                .thenReturn(Optional.of(locked));
+
+        assertThatThrownBy(() -> service.update(USER_ID, CAMPAIGN_ID,
+                new UpdateCampaignRequest("Título", "Descripción", null, null, null, null, null, "123456")))
+                .isInstanceOf(VerificationLockedException.class)
+                .hasMessage("Demasiados intentos fallidos. Podrás intentarlo de nuevo en 10 minutos.");
+        verify(campaignRepository, never()).save(any(Campaign.class));
+    }
+
+    @Test
+    void update_withAWrongPin_countsTheFailedAttempt() {
+        stubCampaign(false);
+
+        assertThatThrownBy(() -> service.update(USER_ID, CAMPAIGN_ID,
+                new UpdateCampaignRequest("Título", "Descripción", null, null, null, null, null, "000000")))
+                .isInstanceOf(InvalidCampaignPinException.class);
+
+        ArgumentCaptor<VerificationAttempt> attempt = ArgumentCaptor.forClass(VerificationAttempt.class);
+        verify(verificationAttemptRepository).save(attempt.capture());
+        assertThat(attempt.getValue().getScope()).isEqualTo("CAMPAIGN:" + CAMPAIGN_ID);
+        assertThat(attempt.getValue().getFailedAttempts()).isEqualTo(1);
+    }
+
+    // =====================================================================
     // Helpers
     // =====================================================================
+
+    private void stubOwnerWithPassword() {
+        User owner = new User("Ana Pérez", "ana@correo.com", passwordEncoder.encode(OWNER_PASSWORD));
+        owner.setRole("creator");
+        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(owner));
+    }
 
     private User stubUser(String role) {
         User user = new User("Ana Pérez", "ana@correo.com", "hash");
@@ -565,7 +817,7 @@ class CampaignServiceTest {
     private Campaign newCampaign(boolean withContributions) {
         Campaign campaign = Campaign.publish(USER_ID, "Título original", "Descripción original", GOAL,
                 NOW.plus(30, ChronoUnit.DAYS), CATEGORY_ID, List.of("https://img.test/old.png"), List.of(),
-                NOW.minus(1, ChronoUnit.DAYS));
+                passwordEncoder.encode("123456"), NOW.minus(1, ChronoUnit.DAYS));
         ReflectionTestUtils.setField(campaign, "id", CAMPAIGN_ID);
         if (withContributions) {
             ReflectionTestUtils.setField(campaign, "raised", new BigDecimal("50000.00"));
@@ -575,11 +827,11 @@ class CampaignServiceTest {
 
     private CreateCampaignRequest createRequest(Instant deadline, List<String> images) {
         return new CreateCampaignRequest("  Mi campaña ", " Descripción del proyecto ",
-                new BigDecimal("5000000"), deadline, CATEGORY_ID, images, null);
+                new BigDecimal("5000000"), deadline, CATEGORY_ID, images, null, "123456");
     }
 
     private UpdateCampaignRequest updateRequest(String title, String description, List<String> images,
             BigDecimal goal, Instant deadline) {
-        return new UpdateCampaignRequest(title, description, images, goal, deadline, null, null);
+        return new UpdateCampaignRequest(title, description, images, goal, deadline, null, null, "123456");
     }
 }

@@ -50,9 +50,19 @@ API REST de la plataforma de Crowdfunding (CodeFactory UdeA), construida con Spr
 | Pausar, cerrar y reactivar campañas | HU-08 | ✅ |
 | Explorar campañas: búsqueda, categoría y orden | HU-09 | ✅ |
 | Aportes, recompensas con stock y comprobante por correo | HU-10, HU-11, HU-12 | ✅ |
+| Progreso, cierre automático por fecha límite y patrocinadores | HU-13 | ✅ |
+| Recaudo del creador y resumen del patrocinador, con filtros | HU-14 | ✅ |
+| Notificaciones de hitos (25/50/75/100 %) en la plataforma y por correo | HU-15 | ✅ |
+| Historial de contribuciones con el estado actual de cada campaña | HU-16 | ✅ |
+| Registro general de transacciones para el admin | HU-17 | ✅ |
+| Reportes: campañas activas con alerta y fondos por periodo | HU-18, HU-19 | ✅ |
 | Administración de usuarios | HU-21 | ✅ |
 | Preferencias de interfaz: tamaño de texto, tema e idioma | HU-22, HU-23 | ✅ |
 | Seguridad: contraseña al editar perfil | HU-S01 | ✅ |
+| Seguridad: contraseña (PIN) de campaña al publicar y al editar | HU-S02, HU-S03, HU-S04 | ✅ |
+| Seguridad: PIN y contraseña para cerrar una campaña | HU-S05 | ✅ |
+| Seguridad: contraseña de la cuenta para aportar | HU-S06 | ✅ |
+| Seguridad: límite de intentos fallidos de verificación | HU-S07 | ✅ |
 | Categorías | — | ✅ |
 
 ---
@@ -135,6 +145,8 @@ La configuración está en `src/main/resources/application.properties`.
 | `SMTP_PASSWORD` | Contraseña o clave de aplicación | — (nunca subirla al repositorio) |
 | `SMTP_AUTH` / `SMTP_STARTTLS` | Autenticación y TLS | `true` / `true` |
 | `SMTP_FROM` | Dirección remitente | — |
+| `VERIFICATION_MAX_ATTEMPTS` | **HU-S07:** fallos consecutivos antes de bloquear una verificación | `5` |
+| `VERIFICATION_LOCK_MINUTES` | **HU-S07:** minutos que dura el bloqueo | `15` |
 
 Spring Boot permite sobreescribir cualquier propiedad con una variable de entorno, por ejemplo `SPRING_DATASOURCE_PASSWORD` o `JWT_SECRET`.
 
@@ -149,7 +161,7 @@ Spring Boot permite sobreescribir cualquier propiedad con una variable de entorn
 - **Motor:** PostgreSQL en Supabase. **ORM:** Spring Data JPA / Hibernate.
 - `spring.jpa.hibernate.ddl-auto=validate`: Hibernate **no crea ni modifica tablas**, solo verifica que el esquema coincida. Por eso hay que ejecutar los scripts a mano.
 
-**Tablas:** `users`, `campaigns`, `campaign_images`, `rewards`, `categories`, `transactions`, `campaign_status_history`.
+**Tablas:** `users`, `campaigns`, `campaign_images`, `rewards`, `categories`, `transactions`, `campaign_status_history`, `notifications`, `campaign_milestones`, `verification_attempts`, `verification_lockouts`.
 
 **Scripts** (en `src/main/resources/db/migration/`; todos son idempotentes). Ejecutarlos en orden en el SQL Editor de Supabase:
 
@@ -160,7 +172,12 @@ Spring Boot permite sobreescribir cualquier propiedad con una variable de entorn
 | `V4__contributions_rewards_and_receipts.sql` | Permite `stock = 0` y agrega `reward_id` / `reward_name` a `transactions` |
 | `V5__campaign_status_constraint.sql` | Restricción de estados de campaña (`ACTIVE`, `PAUSED`, `CLOSED`, `FINISHED`) |
 | `V6__campaign_image_url_to_text.sql` | Permite guardar imágenes como *data URL* de hasta 2 MB |
+| `V7__create_notifications_and_campaign_milestones.sql` | Tablas `notifications` y `campaign_milestones` (HU-15) |
 | `V8__user_preferences.sql` | Agrega `font_size`, `theme` y `language` a `users` (HU-22, HU-23) |
+| `V9__campaign_pin.sql` | Agrega `campaigns.pin_hash` (hash BCrypt del PIN) y asigna el PIN por defecto `123456` a las campañas existentes (HU-S02 a HU-S04) |
+| `V10__verification_attempts_and_lockouts.sql` | Tablas `verification_attempts` (contador de fallos) y `verification_lockouts` (registro de bloqueos) (HU-S07) |
+
+> ⚠️ Si falta alguna tabla o columna, el backend **no arranca** (`ddl-auto=validate`). Ejecutar los scripts nuevos en Supabase **antes** de desplegar el JAR.
 
 ---
 
@@ -253,13 +270,27 @@ Todos los ejemplos y esquemas completos están en Swagger. Resumen:
 | GET | `/api/campaigns?nombre=&categoria=&orden=` | Campañas activas. `orden`: `recaudo`, `fecha`, `popularidad` (por defecto, las más recientes) |
 | GET | `/api/campaigns/{id}` | Detalle con recompensas, stock, patrocinadores y número de aportes |
 | GET | `/api/campaigns/mine` | Campañas del creador (incluye pausadas y cerradas); un admin ve todas |
-| POST | `/api/campaigns` | **HU-06:** publicar campaña (queda `ACTIVE`). 201 |
-| PUT | `/api/campaigns/{id}` | **HU-07:** editar campaña activa (solo su creador) |
-| PATCH | `/api/campaigns/{id}/status` | **HU-08:** cambiar estado (`ACTIVE`, `PAUSED`, `CLOSED`); solo el creador |
-| POST | `/api/campaigns/{id}/contributions/confirm` | **HU-11/HU-12:** aportar con recompensa opcional; devuelve el comprobante (201) y lo envía por correo |
-| POST | `/api/campaigns/{id}/contributions` | **HU-10:** mismo proceso, con respuesta en texto |
+| POST | `/api/campaigns` | **HU-06:** publicar campaña (queda `ACTIVE`). 201. **HU-S02:** exige `pin` (exactamente 6 dígitos) |
+| PUT | `/api/campaigns/{id}` | **HU-07:** editar campaña activa (solo su creador). **HU-S04:** exige `pin` de esa campaña; si falta o es incorrecto responde 400 con un mensaje genérico y no guarda nada |
+| PATCH | `/api/campaigns/{id}/status` | **HU-08:** cambiar estado (`ACTIVE`, `PAUSED`, `CLOSED`); solo el creador. **HU-S05:** para `CLOSED` exige `pin` y `password`: `{ "status": "CLOSED", "pin": "123456", "password": "..." }` |
+| POST | `/api/campaigns/{id}/contributions/confirm` | **HU-11/HU-12:** aportar con recompensa opcional; devuelve el comprobante (201) y lo envía por correo. **HU-S06:** exige `password` |
+| POST | `/api/campaigns/{id}/contributions` | **HU-10:** mismo proceso, con respuesta en texto. **HU-S06:** exige `password` |
+| GET | `/api/campaigns/{id}/earnings?contributor=&reward=` | **HU-14:** recaudo de una campaña propia y lista de patrocinadores (fecha, monto, recompensa), filtrable por patrocinador o recompensa |
+| GET | `/api/campaigns/contributions/summary` | **HU-14:** total aportado por el patrocinador y detalle por campaña |
 
-Body de un aporte: `{ "amount": 60000, "rewardId": "uuid-opcional" }`.
+Body de un aporte: `{ "amount": 60000, "rewardId": "uuid-opcional", "password": "contraseña-de-la-cuenta" }`.
+
+### Historial, notificaciones y reportes
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| GET | `/api/contributions/history` | **HU-16:** mis aportes (fecha, campaña, monto, recompensa y `campaignStatus` actual) y el total acumulado |
+| GET | `/api/notifications` | **HU-15:** mis notificaciones (de la más reciente a la más antigua) y `unreadCount` |
+| PATCH | `/api/notifications/{id}/read` | **HU-15:** marcar una como leída (404 si no existe o es de otro usuario) |
+| PATCH | `/api/notifications/read-all` | **HU-15:** marcar todas como leídas. 204 |
+| GET | `/api/reports/active-campaigns` | **HU-18:** campañas activas con porcentaje, días restantes y `alert`; el creador ve las suyas y el admin todas |
+| GET | `/api/reports/funds-by-period?startDate=&endDate=` | **HU-19:** total, cantidad y promedio de aportes en el periodo (fechas ISO-8601) |
+| GET | `/api/admin/transactions?startDate=&endDate=&type=&userId=` | **HU-17 (solo `admin`):** registro general de transacciones, de solo lectura |
 
 ### Categorías
 
@@ -289,11 +320,30 @@ Body de un aporte: `{ "amount": 60000, "rewardId": "uuid-opcional" }`.
 - Si la campaña ya recibió aportes, **la meta y la fecha límite quedan bloqueadas** (409).
 - Una campaña pausada o cerrada no recibe aportes.
 
+**Contraseña de campaña (HU-S02, HU-S03, HU-S04)**
+- Al publicar, `pin` es obligatorio y debe ser de exactamente 6 dígitos (400 con el formato requerido si no). Se guarda solo el **hash BCrypt** en `campaigns.pin_hash`; nunca se devuelve en las respuestas, y los DTO ocultan el PIN en su `toString` para que no llegue a los registros.
+- Cada campaña tiene su propio hash, así que el PIN de otra campaña (aunque sea del mismo creador) no sirve (HU-S03).
+- Al editar, el orden de verificación es: campaña existente, **creador** (403), campaña **activa** (409), **PIN** (400) y después las demás reglas. Un PIN vacío, incorrecto o de otra campaña da el mismo mensaje genérico, sin revelar cuál falló.
+- Las campañas anteriores a la migración V9 quedan con el PIN por defecto `123456` (medida para los datos de prueba). Cambiar el PIN después de publicar no está en el alcance de las HU actuales.
+
+**Cerrar campaña (HU-S05)**
+- Pasar a `CLOSED` exige el PIN de la campaña y la contraseña de la cuenta. Se comprueban siempre los dos, y si alguno falta o es incorrecto responde 400 con un mensaje genérico, sin decir cuál falló; la campaña conserva su estado.
+- Pausar o reactivar no pide credenciales. La advertencia de que el cierre es permanente la muestra el frontend antes de pedirlas.
+
+**Contraseña para aportar (HU-S06)**
+- El aporte exige la contraseña de la cuenta. Si falta o es incorrecta responde 400 con el mensaje genérico de HU-S01, y no se descuenta saldo, no se registra la transacción ni cambia el recaudo.
+
+**Límite de intentos (HU-S07)**
+- Aplica a la contraseña de la cuenta (perfil y aportes) y al PIN de cada campaña (editar y cerrar). Cada campaña lleva su propio contador, independiente del de la cuenta.
+- Tras `VERIFICATION_MAX_ATTEMPTS` fallos consecutivos (5 por defecto) esa verificación queda bloqueada `VERIFICATION_LOCK_MINUTES` minutos (15 por defecto). Mientras dure, responde **429** con el tiempo de espera (cabecera `Retry-After` y `details.retryAfterSeconds`) sin comprobar el dato ni revelar cuál era incorrecto.
+- Una verificación exitosa reinicia el contador. Cada bloqueo se guarda en `verification_lockouts` con fecha, usuario y campaña (vacía si fue la contraseña de la cuenta).
+
 **Aportes (HU-10 a HU-12)** — validaciones en este orden:
 1. Monto mayor a 0.
-2. Campaña existente y activa.
-3. La recompensa pertenece a la campaña, tiene stock y el monto alcanza su mínimo.
-4. Saldo suficiente.
+2. Campaña existente, activa y sin pasar su fecha límite.
+3. Contraseña de la cuenta (HU-S06).
+4. La recompensa pertenece a la campaña, tiene stock y el monto alcanza su mínimo.
+5. Saldo suficiente.
 
 Al confirmar, en una sola transacción: se descuenta el saldo, se suma al total aportado (`historic`) y al recaudo de la campaña, se baja una unidad de stock, se guarda la transacción (`type = contribution`) y se envía el comprobante por correo. Si algo falla, incluido el correo, **todo se revierte**. La campaña y el patrocinador se bloquean (`PESSIMISTIC_WRITE`) para evitar dos aportes simultáneos sobre la última unidad o el mismo saldo.
 
@@ -319,6 +369,7 @@ Todas las respuestas de error usan el mismo formato (`ApiError`):
 | 403 | Sin permisos (no es el creador, no es admin) |
 | 404 | Recurso inexistente |
 | 409 | Conflicto: correo repetido, campaña no activa o con aportes |
+| 429 | Verificación bloqueada por demasiados intentos fallidos (HU-S07) |
 | 500 | Error inesperado o correo no disponible al aportar |
 
 ---
@@ -342,7 +393,8 @@ Para probar endpoints protegidos:
 ./mvnw test
 ```
 
-- **97 pruebas** (JUnit 5 + Mockito) en 8 clases: `CampaignTest`, `CampaignServiceTest`, `CampaignContributionConfirmationTest`, `ContributionEmailServiceTest`, `CampaignRequestValidationTest`, `CampaignControllerTest`, `GlobalExceptionHandlerCampaignTest` y `GlobalExceptionHandlerContributionTest`.
+- **148 pruebas unitarias** (JUnit 5 + Mockito) en 12 clases: `CampaignTest`, `CampaignServiceTest`, `CampaignContributionConfirmationTest`, `ContributionEmailServiceTest`, `ContributionHistoryServiceTest`, `NotificationServiceTest`, `VerificationAttemptServiceTest`, `CampaignRequestValidationTest`, `CampaignControllerTest`, `GlobalExceptionHandlerCampaignTest`, `GlobalExceptionHandlerContributionTest` y `GlobalExceptionHandlerVerificationTest`.
+- `CrowdfundingApplicationTests` levanta el contexto completo y necesita la base de datos con todas las migraciones aplicadas. Para correr solo las unitarias: `./mvnw test -Dtest='!CrowdfundingApplicationTests'`.
 - Reporte de cobertura de JaCoCo: `target/site/jacoco/index.html` (*quality gate* ≥ 65 %).
 
 ---
@@ -387,7 +439,7 @@ tail -f /home/ubuntu/app.log           # Log en vivo
 - **`POST /api/categories` es público:** cualquier persona puede crear categorías sin iniciar sesión. Debería exigir rol `admin`.
 - **Migraciones manuales:** los scripts SQL se ejecutan a mano; no hay Flyway ni Liquibase.
 - **Notificación al cerrar campaña:** hoy solo se registra en el log; no se envía correo a los patrocinadores.
-- **Historial de estados incompleto:** `campaign_status_history` solo guarda el estado inicial al publicar; los cambios a `PAUSED` o `CLOSED` no se registran todavía.
+- **Una campaña cerrada se puede reabrir:** `PATCH /status` no impide pasar de `CLOSED` a `ACTIVE`, aunque el cierre debería ser permanente (HU-08, HU-S05).
 
 ---
 
@@ -397,7 +449,6 @@ tail -f /home/ubuntu/app.log           # Log en vivo
 - [ ] Rechazar el login de cuentas `INACTIVE`
 - [ ] Migraciones automáticas con Flyway
 - [ ] Retiro de fondos para creadores
-- [ ] Finalizar campañas automáticamente al vencer la fecha límite (`FINISHED`)
 - [ ] Correo a patrocinadores al cerrar una campaña
 - [ ] CI/CD con GitHub Actions
 - [ ] Pruebas para `UserService`, `AuthService` y `AdminUserService`

@@ -15,6 +15,18 @@ public record ContributionConfirmationRequest(
         BigDecimal amount,
 
         /** Opcional: debe ser una de las recompensas de la campaña. */
-        UUID rewardId
+        UUID rewardId,
+
+        /**
+         * HU-S06: contraseña de la cuenta. Se valida en el servicio (y no aquí) para responder
+         * siempre el mismo error genérico, tanto si falta como si es incorrecta.
+         */
+        String password
 ) {
+
+    /** La contraseña no debe aparecer en registros ni en trazas. */
+    @Override
+    public String toString() {
+        return "ContributionConfirmationRequest[amount=" + amount + ", rewardId=" + rewardId + ", password=****]";
+    }
 }

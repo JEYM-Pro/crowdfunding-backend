@@ -11,6 +11,7 @@ import java.util.stream.Collectors;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Sort;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -30,6 +31,9 @@ import co.udea.crowdfunding.exception.CampaignAccessDeniedException;
 import co.udea.crowdfunding.exception.CampaignNotEditableException;
 import co.udea.crowdfunding.exception.CampaignNotFoundException;
 import co.udea.crowdfunding.exception.InvalidCampaignException;
+import co.udea.crowdfunding.exception.InvalidCampaignPinException;
+import co.udea.crowdfunding.exception.InvalidCloseCredentialsException;
+import co.udea.crowdfunding.exception.InvalidPasswordException;
 import co.udea.crowdfunding.exception.InvalidContributionException;
 import co.udea.crowdfunding.repository.CampaignRepository;
 import co.udea.crowdfunding.repository.CampaignStatusHistoryRepository;
@@ -61,6 +65,8 @@ public class CampaignService {
     private final TransactionRepository transactionRepository;
     private final Clock clock;
     private final CampaignMilestoneService milestoneService;
+    private final PasswordEncoder passwordEncoder;
+    private final VerificationAttemptService verificationAttemptService;
 
     public CampaignService(CampaignRepository campaignRepository,
             CategoryRepository categoryRepository,
@@ -68,7 +74,9 @@ public class CampaignService {
             UserRepository userRepository,
             TransactionRepository transactionRepository,
             Clock clock,
-            CampaignMilestoneService milestoneService) {
+            CampaignMilestoneService milestoneService,
+            PasswordEncoder passwordEncoder,
+            VerificationAttemptService verificationAttemptService) {
         this.campaignRepository = campaignRepository;
         this.categoryRepository = categoryRepository;
         this.statusHistoryRepository = statusHistoryRepository;
@@ -76,6 +84,8 @@ public class CampaignService {
         this.transactionRepository = transactionRepository;
         this.clock = clock;
         this.milestoneService = milestoneService;
+        this.passwordEncoder = passwordEncoder;
+        this.verificationAttemptService = verificationAttemptService;
     }
 
     @Transactional
@@ -105,6 +115,7 @@ public class CampaignService {
                 category.getId(),
                 cleanImages(request.images()),
                 toRewards(request.rewards()),
+                passwordEncoder.encode(request.pin()),
                 now));
 
         statusHistoryRepository.save(
@@ -126,6 +137,7 @@ public class CampaignService {
         if (!campaign.isActive()) {
             throw new CampaignNotEditableException(NOT_ACTIVE_MESSAGE);
         }
+        verifyCampaignPin(userId, campaign, request.pin());
         if (request.rewards() != null && !request.rewards().isEmpty()) {
             throw new CampaignNotEditableException(REWARDS_LOCKED_MESSAGE);
         }
@@ -276,6 +288,38 @@ public class CampaignService {
                 .orElseThrow(() -> new IllegalArgumentException("No hay categorías disponibles en el sistema."));
     }
 
+    /**
+     * HU-S04 / HU-S03: el PIN se compara solo contra el hash de esta campaña.
+     * Vacío, incorrecto o de otra campaña producen el mismo error genérico.
+     */
+    private void verifyCampaignPin(UUID userId, Campaign campaign, String pin) {
+        verificationAttemptService.verify(userId, VerificationScope.campaign(campaign.getId()),
+                () -> pinMatches(campaign, pin))
+                .orThrow(InvalidCampaignPinException::new);
+    }
+
+    private boolean pinMatches(Campaign campaign, String pin) {
+        return pin != null && !pin.isBlank() && campaign.getPinHash() != null
+                && passwordEncoder.matches(pin, campaign.getPinHash());
+    }
+
+    private boolean accountPasswordMatches(User user, String password) {
+        return password != null && !password.isBlank()
+                && passwordEncoder.matches(password, user.getPassword());
+    }
+
+    /**
+     * HU-S05: cerrar exige el PIN de la campaña y la contraseña de la cuenta. Se comprueban siempre
+     * ambos (con {@code &}, sin cortocircuito) para no revelar, ni por el tiempo de respuesta, cuál falló.
+     */
+    private void verifyCloseCredentials(UUID userId, Campaign campaign, String pin, String password) {
+        User owner = userRepository.findById(userId)
+                .orElseThrow(() -> new IllegalArgumentException("Usuario no encontrado"));
+        verificationAttemptService.verify(userId, VerificationScope.campaign(campaign.getId()),
+                () -> pinMatches(campaign, pin) & accountPasswordMatches(owner, password))
+                .orThrow(InvalidCloseCredentialsException::new);
+    }
+
     private Campaign findCampaign(UUID campaignId) {
         return campaignRepository.findById(campaignId).orElseThrow(CampaignNotFoundException::new);
     }
@@ -333,7 +377,8 @@ public class CampaignService {
     }
 
     @Transactional
-    public CampaignResponse updateCampaignStatus(UUID campaignId, CampaignStatus newStatus, UUID userId) {
+    public CampaignResponse updateCampaignStatus(UUID campaignId, CampaignStatus newStatus, UUID userId,
+            String pin, String password) {
         Campaign campaign = campaignRepository.findById(campaignId)
                 .orElseThrow(() -> new CampaignNotFoundException());
 
@@ -342,6 +387,7 @@ public class CampaignService {
         }
 
         if (newStatus == CampaignStatus.CLOSED) {
+            verifyCloseCredentials(userId, campaign, pin, password);
             System.out.println(
                     "Notificando a los patrocinadores que la campaña " + campaign.getTitle() + " ha sido cerrada.");
         }
@@ -379,7 +425,8 @@ public class CampaignService {
     public ContributionConfirmationResponse makeContributionWithConfirmation(UUID campaignId,
             BigDecimal amount,
             UUID rewardId,
-            UUID userId) {
+            UUID userId,
+            String password) {
         if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
             throw new InvalidContributionException("El monto a aportar debe ser mayor a cero.");
         }
@@ -397,6 +444,11 @@ public class CampaignService {
 
         User sponsor = userRepository.findByIdForUpdate(userId)
                 .orElseThrow(() -> new IllegalArgumentException("Usuario no encontrado."));
+
+        // HU-S06: sin la contraseña de la cuenta no se descuenta saldo, no se registra nada ni cambia el recaudo.
+        verificationAttemptService.verify(userId, VerificationScope.account(),
+                () -> accountPasswordMatches(sponsor, password))
+                .orThrow(InvalidPasswordException::new);
 
         Reward reward = rewardId == null ? null : findRewardOf(campaign, rewardId);
         if (reward != null) {

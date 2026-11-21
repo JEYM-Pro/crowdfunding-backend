@@ -41,7 +41,7 @@ class CampaignRequestValidationTest {
     @Test
     void create_withValidData_hasNoViolations() {
         CreateCampaignRequest request = new CreateCampaignRequest("Título", "Descripción",
-                new BigDecimal("1000000"), DEADLINE, CATEGORY_ID, List.of("https://img.test/1.png"), null);
+                new BigDecimal("1000000"), DEADLINE, CATEGORY_ID, List.of("https://img.test/1.png"), null, "123456");
 
         assertThat(validator.validate(request)).isEmpty();
     }
@@ -72,13 +72,44 @@ class CampaignRequestValidationTest {
 
     @Test
     void create_withAllFieldsMissing_reportsEveryRequiredField() {
-        CreateCampaignRequest request = new CreateCampaignRequest(" ", "", null, null, null, null, null);
+        CreateCampaignRequest request = new CreateCampaignRequest(" ", "", null, null, null, null, null, null);
 
         assertThat(messages(validator.validate(request))).containsExactlyInAnyOrder(
                 "El título es obligatorio.",
                 "La descripción es obligatoria.",
                 "La meta de financiación es obligatoria.",
-                "La fecha límite es obligatoria.");
+                "La fecha límite es obligatoria.",
+                "La contraseña de campaña es obligatoria.");
+    }
+
+    // ---------------- HU-S02: contraseña de campaña (PIN de 6 dígitos)
+
+    @Test
+    void create_withSixDigitPin_isValid() {
+        assertThat(validator.validate(createWithPin("123456"))).isEmpty();
+        assertThat(validator.validate(createWithPin("000000"))).isEmpty();
+    }
+
+    @Test
+    void create_withBlankPin_isRejectedAsRequired() {
+        assertThat(messages(validator.validate(createWithPin(" "))))
+                .contains("La contraseña de campaña es obligatoria.");
+    }
+
+    @Test
+    void create_withWrongPinFormat_isRejectedShowingTheRequiredFormat() {
+        for (String invalid : List.of("12345", "1234567", "12345a", "abcdef", "12 456", "12.456")) {
+            assertThat(messages(validator.validate(createWithPin(invalid))))
+                    .as("PIN %s", invalid)
+                    .contains("La contraseña de campaña debe ser un PIN de exactamente 6 dígitos numéricos.");
+        }
+    }
+
+    @Test
+    void requests_neverPrintThePinInTheirStringRepresentation() {
+        assertThat(createWithPin("987654").toString()).doesNotContain("987654");
+        assertThat(new UpdateCampaignRequest("T", "D", null, null, null, null, null, "987654").toString())
+                .doesNotContain("987654");
     }
 
     @Test
@@ -86,7 +117,7 @@ class CampaignRequestValidationTest {
         List<String> images = List.of("https://a.test/1.png", "https://a.test/2.png", "https://a.test/3.png",
                 "https://a.test/4.png", "https://a.test/5.png");
         CreateCampaignRequest request = new CreateCampaignRequest("Título", "Descripción",
-                BigDecimal.TEN, DEADLINE, CATEGORY_ID, images, null);
+                BigDecimal.TEN, DEADLINE, CATEGORY_ID, images, null, "123456");
 
         assertThat(messages(validator.validate(request)))
                 .containsExactly("Una campaña puede tener máximo 4 imágenes");
@@ -95,7 +126,7 @@ class CampaignRequestValidationTest {
     @Test
     void create_withNonHttpImageUrl_isRejected() {
         CreateCampaignRequest request = new CreateCampaignRequest("Título", "Descripción",
-                BigDecimal.TEN, DEADLINE, CATEGORY_ID, List.of("ftp://servidor/imagen.png"), null);
+                BigDecimal.TEN, DEADLINE, CATEGORY_ID, List.of("ftp://servidor/imagen.png"), null, "123456");
 
         assertThat(messages(validator.validate(request)))
                 .containsExactly("Cada imagen debe ser una URL válida (http, https o data)");
@@ -106,7 +137,7 @@ class CampaignRequestValidationTest {
         String prefix = "data:image/png;base64,";
         String image = prefix + "A".repeat(2_800_000 - prefix.length());
         CreateCampaignRequest request = new CreateCampaignRequest("Título", "Descripción",
-                BigDecimal.TEN, DEADLINE, CATEGORY_ID, List.of(image), null);
+                BigDecimal.TEN, DEADLINE, CATEGORY_ID, List.of(image), null, "123456");
 
         assertThat(validator.validate(request)).isEmpty();
     }
@@ -116,7 +147,7 @@ class CampaignRequestValidationTest {
         String prefix = "data:image/png;base64,";
         String image = prefix + "A".repeat(2_800_001 - prefix.length());
         CreateCampaignRequest request = new CreateCampaignRequest("Título", "Descripción",
-                BigDecimal.TEN, DEADLINE, CATEGORY_ID, List.of(image), null);
+                BigDecimal.TEN, DEADLINE, CATEGORY_ID, List.of(image), null, "123456");
 
         assertThat(messages(validator.validate(request)))
                 .containsExactly("La imagen no puede superar el tamaño máximo permitido");
@@ -125,7 +156,7 @@ class CampaignRequestValidationTest {
     @Test
     void create_withTooLongTitle_isRejected() {
         CreateCampaignRequest request = new CreateCampaignRequest("x".repeat(256), "Descripción",
-                BigDecimal.TEN, DEADLINE, CATEGORY_ID, null, null);
+                BigDecimal.TEN, DEADLINE, CATEGORY_ID, null, null, "123456");
 
         assertThat(messages(validator.validate(request)))
                 .containsExactly("El título no puede superar 255 caracteres");
@@ -135,14 +166,14 @@ class CampaignRequestValidationTest {
 
     @Test
     void update_withOnlyRequiredFields_hasNoViolations() {
-        UpdateCampaignRequest request = new UpdateCampaignRequest("Título", "Descripción", null, null, null, null, null);
+        UpdateCampaignRequest request = new UpdateCampaignRequest("Título", "Descripción", null, null, null, null, null, null);
 
         assertThat(validator.validate(request)).isEmpty();
     }
 
     @Test
     void update_withBlankTitleAndDescription_isRejected() {
-        UpdateCampaignRequest request = new UpdateCampaignRequest("", "  ", null, null, null, null, null);
+        UpdateCampaignRequest request = new UpdateCampaignRequest("", "  ", null, null, null, null, null, null);
 
         assertThat(messages(validator.validate(request))).containsExactlyInAnyOrder(
                 "El título es obligatorio.",
@@ -152,7 +183,7 @@ class CampaignRequestValidationTest {
     @Test
     void update_withNonPositiveGoal_isRejected() {
         UpdateCampaignRequest request = new UpdateCampaignRequest("Título", "Descripción", null,
-                BigDecimal.ZERO, null, null, null);
+                BigDecimal.ZERO, null, null, null, null);
 
         assertThat(messages(validator.validate(request)))
                 .containsExactly("La meta de financiación debe ser mayor a cero.");
@@ -161,7 +192,7 @@ class CampaignRequestValidationTest {
     @Test
     void update_withInvalidImageUrl_isRejected() {
         UpdateCampaignRequest request = new UpdateCampaignRequest("Título", "Descripción",
-                List.of("no-es-una-url"), null, null, null, null);
+                List.of("no-es-una-url"), null, null, null, null, null);
 
         assertThat(messages(validator.validate(request)))
                 .containsExactly("Cada imagen debe ser una URL válida (http, https o data)");
@@ -209,11 +240,15 @@ class CampaignRequestValidationTest {
     // ---------------------------------- Helpers ----------------------------------
 
     private CreateCampaignRequest createWithGoal(BigDecimal goal) {
-        return new CreateCampaignRequest("Título", "Descripción", goal, DEADLINE, CATEGORY_ID, null, null);
+        return new CreateCampaignRequest("Título", "Descripción", goal, DEADLINE, CATEGORY_ID, null, null, "123456");
     }
 
     private CreateCampaignRequest createWithRewards(List<RewardRequest> rewards) {
-        return new CreateCampaignRequest("Título", "Descripción", BigDecimal.TEN, DEADLINE, CATEGORY_ID, null, rewards);
+        return new CreateCampaignRequest("Título", "Descripción", BigDecimal.TEN, DEADLINE, CATEGORY_ID, null, rewards, "123456");
+    }
+
+    private CreateCampaignRequest createWithPin(String pin) {
+        return new CreateCampaignRequest("Título", "Descripción", BigDecimal.TEN, DEADLINE, CATEGORY_ID, null, null, pin);
     }
 
     private <T> Set<String> messages(Set<ConstraintViolation<T>> violations) {
