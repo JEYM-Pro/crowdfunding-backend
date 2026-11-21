@@ -259,7 +259,7 @@ Todos los ejemplos y esquemas completos están en Swagger. Resumen:
 |---|---|---|
 | PUT | `/api/users/profile` | Editar nombre y correo. **HU-S01:** exige `password` (contraseña actual); si falta o es incorrecta responde 400 y no guarda nada |
 | GET | `/api/users/preferences` | **HU-22/HU-23:** tamaño de texto, tema e idioma guardados |
-| PUT | `/api/users/preferences` | **HU-22/HU-23:** guardar preferencias `{ "fontSize": "small\|medium\|large", "theme": "light\|dark", "language": "es\|en" }` (campos opcionales) |
+| PUT | `/api/users/preferences` | **HU-22/HU-23:** guardar preferencias `{ "fontSize": "medium\|large\|xlarge", "theme": "light\|dark\|system", "language": "es\|en" }` (campos opcionales; `medium` = Normal, `large` = Grande, `xlarge` = Extra grande; `small` se acepta por compatibilidad) |
 | POST | `/api/users/recharge` | Recargar saldo (crea una transacción `recharge`) |
 | GET | `/api/users/balance` | Saldo, total aportado, historial de transacciones y campañas propias o apoyadas |
 
