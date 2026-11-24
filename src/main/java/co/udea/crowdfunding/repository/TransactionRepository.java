@@ -5,12 +5,13 @@ import java.util.List;
 import java.util.UUID;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import co.udea.crowdfunding.entity.Transaction;
 
-public interface TransactionRepository extends JpaRepository<Transaction, UUID> {
+public interface TransactionRepository extends JpaRepository<Transaction, UUID>, JpaSpecificationExecutor<Transaction> {
 
     List<Transaction> findByUserIdAndType(UUID userId, String type);
 
@@ -37,21 +38,11 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
     // Listar todas las transacciones ordenadas cronológicamente
     List<Transaction> findAllByOrderByDateDesc();
 
-    // HU-17: Consulta con filtros opcionales (fechas, tipo, usuario)
-    @Query("SELECT t FROM Transaction t WHERE " +
-            "(:startDate IS NULL OR t.date >= :startDate) AND " +
-            "(:endDate IS NULL OR t.date <= :endDate) AND " +
-            "(:type IS NULL OR LOWER(t.type) = LOWER(:type)) AND " +
-            "(:userId IS NULL OR t.userId = :userId) " +
-            "ORDER BY t.date DESC")
-    List<Transaction> findFilteredTransactions(
-            @Param("startDate") Instant startDate,
-            @Param("endDate") Instant endDate,
-            @Param("type") String type,
-            @Param("userId") UUID userId
-    );
+    // HU-17: los filtros opcionales se arman con Specification en TransactionQueryService.
+    // Un JPQL con "(:param IS NULL OR ...)" falla en PostgreSQL cuando el parámetro llega nulo
+    // (no puede deducir su tipo), por eso no se usa aquí.
 
-// HU-19: Aportes en un rango de fechas (Consolidado Administrador)
+    // HU-19: Aportes en un rango de fechas (Consolidado Administrador)
     @Query("SELECT t FROM Transaction t WHERE LOWER(t.type) IN ('contribution', 'aporte') " +
             "AND t.date >= :startDate AND t.date <= :endDate " +
             "ORDER BY t.date DESC")
