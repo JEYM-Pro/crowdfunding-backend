@@ -28,6 +28,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
@@ -53,6 +54,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -743,6 +745,64 @@ class CampaignServiceTest {
         service.updateCampaignStatus(CAMPAIGN_ID, CampaignStatus.PAUSED, USER_ID, null, null);
 
         assertThat(campaign.getStatus()).isEqualTo(CampaignStatus.PAUSED);
+    }
+
+    // =====================================================================
+    // HU-08: máquina de estados de la campaña
+    // =====================================================================
+
+    @ParameterizedTest
+    @CsvSource({"ACTIVE,PAUSED", "PAUSED,ACTIVE", "ACTIVE,CLOSED", "PAUSED,CLOSED"})
+    void statusChange_allowedTransition_isApplied(CampaignStatus from, CampaignStatus to) {
+        Campaign campaign = stubCampaign(false);
+        campaign.setStatus(from);
+        if (to == CampaignStatus.CLOSED) stubOwnerWithPassword();
+        stubSaveCampaign();
+
+        service.updateCampaignStatus(CAMPAIGN_ID, to, USER_ID, "123456", OWNER_PASSWORD);
+
+        assertThat(campaign.getStatus()).isEqualTo(to);
+        ArgumentCaptor<CampaignStatusHistory> history = ArgumentCaptor.forClass(CampaignStatusHistory.class);
+        verify(statusHistoryRepository).save(history.capture());
+        assertThat(history.getValue().getFromStatus()).isEqualTo(from);
+        assertThat(history.getValue().getToStatus()).isEqualTo(to);
+    }
+
+    /** Cerrada y Finalizada son definitivas, FINISHED solo lo pone el vencimiento y no se "cambia" al mismo estado. */
+    @ParameterizedTest
+    @CsvSource({"CLOSED,ACTIVE", "CLOSED,PAUSED", "CLOSED,CLOSED", "FINISHED,ACTIVE", "FINISHED,CLOSED",
+                "ACTIVE,FINISHED", "PAUSED,FINISHED", "ACTIVE,ACTIVE", "PAUSED,PAUSED"})
+    void statusChange_forbiddenTransition_isRejectedWithoutTouchingTheCampaign(CampaignStatus from, CampaignStatus to) {
+        Campaign campaign = stubCampaign(false);
+        campaign.setStatus(from);
+
+        assertThatThrownBy(() -> service.updateCampaignStatus(CAMPAIGN_ID, to, USER_ID, "123456", OWNER_PASSWORD))
+                .isInstanceOf(CampaignNotEditableException.class)
+                .hasMessageContaining("No se puede pasar la campaña");
+
+        assertThat(campaign.getStatus()).isEqualTo(from);
+        verify(campaignRepository, never()).save(any(Campaign.class));
+        verify(statusHistoryRepository, never()).save(any(CampaignStatusHistory.class));
+        // una transición imposible no consume intentos de verificación (HU-S07)
+        verifyNoInteractions(verificationAttemptRepository);
+    }
+
+    @Test
+    void statusChange_reopeningAClosedCampaign_explainsThatTheCloseIsPermanent() {
+        Campaign campaign = stubCampaign(false);
+        campaign.setStatus(CampaignStatus.CLOSED);
+
+        assertThatThrownBy(() -> service.updateCampaignStatus(CAMPAIGN_ID, CampaignStatus.ACTIVE, USER_ID, null, null))
+                .isInstanceOf(CampaignNotEditableException.class)
+                .hasMessage("No se puede pasar la campaña de «Cerrada» a «Activa». Una campaña cerrada no admite cambios de estado.");
+    }
+
+    @Test
+    void statusChange_withoutNewStatus_isRejected() {
+        stubCampaign(false);
+
+        assertThatThrownBy(() -> service.updateCampaignStatus(CAMPAIGN_ID, null, USER_ID, null, null))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     // =====================================================================
