@@ -4,8 +4,10 @@ import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -53,6 +55,18 @@ public class CampaignService {
     static final String REWARDS_LOCKED_MESSAGE = "La lista de recompensas no se puede modificar una vez publicada la campaña.";
 
     static final String CONTRIBUTION_TYPE = "contribution";
+    /**
+     * Máquina de estados de la campaña (HU-08, HU-S05): Activa y Pausada se alternan, cualquiera de las dos
+     * puede cerrarse, y Cerrada y Finalizada son definitivas. FINISHED solo lo asigna el vencimiento automático.
+     */
+    static final Map<CampaignStatus, Set<CampaignStatus>> ALLOWED_TRANSITIONS = Map.of(
+            CampaignStatus.ACTIVE, EnumSet.of(CampaignStatus.PAUSED, CampaignStatus.CLOSED),
+            CampaignStatus.PAUSED, EnumSet.of(CampaignStatus.ACTIVE, CampaignStatus.CLOSED),
+            CampaignStatus.CLOSED, EnumSet.noneOf(CampaignStatus.class),
+            CampaignStatus.FINISHED, EnumSet.noneOf(CampaignStatus.class));
+    private static final Map<CampaignStatus, String> STATUS_LABELS = Map.of(
+            CampaignStatus.ACTIVE, "Activa", CampaignStatus.PAUSED, "Pausada",
+            CampaignStatus.CLOSED, "Cerrada", CampaignStatus.FINISHED, "Finalizada");
     static final String CONTRIBUTION_NOT_ACTIVE_MESSAGE = "No se pueden realizar aportes a una campaña que no está activa.";
     static final String CONTRIBUTION_SUCCESS_MESSAGE = "Aporte realizado exitosamente.";
 
@@ -386,6 +400,9 @@ public class CampaignService {
             throw new CampaignAccessDeniedException();
         }
 
+        // Se valida antes de pedir credenciales: una transición imposible no debe gastar intentos (HU-S07).
+        validateStatusTransition(campaign.getStatus(), newStatus);
+
         if (newStatus == CampaignStatus.CLOSED) {
             verifyCloseCredentials(userId, campaign, pin, password);
             System.out.println(
@@ -416,6 +433,19 @@ public class CampaignService {
         return CampaignResponse.fromWithDetails(
                 updatedCampaign, categoryName(updatedCampaign.getCategoryId()), creator, backerEmails,
                 contributionsCount);
+    }
+
+    private void validateStatusTransition(CampaignStatus current, CampaignStatus requested) {
+        if (requested == null) {
+            throw new IllegalArgumentException("Debes indicar el nuevo estado de la campaña.");
+        }
+        if (!ALLOWED_TRANSITIONS.getOrDefault(current, Set.of()).contains(requested)) {
+            String reason = (current == CampaignStatus.CLOSED || current == CampaignStatus.FINISHED)
+                    ? " Una campaña " + STATUS_LABELS.get(current).toLowerCase() + " no admite cambios de estado."
+                    : "";
+            throw new CampaignNotEditableException("No se puede pasar la campaña de «" + STATUS_LABELS.get(current)
+                    + "» a «" + STATUS_LABELS.get(requested) + "»." + reason);
+        }
     }
 
     @Autowired

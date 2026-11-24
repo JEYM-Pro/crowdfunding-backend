@@ -330,6 +330,10 @@ Body de un aporte: `{ "amount": 60000, "rewardId": "uuid-opcional", "password": 
 - Pasar a `CLOSED` exige el PIN de la campaña y la contraseña de la cuenta. Se comprueban siempre los dos, y si alguno falta o es incorrecto responde 400 con un mensaje genérico, sin decir cuál falló; la campaña conserva su estado.
 - Pausar o reactivar no pide credenciales. La advertencia de que el cierre es permanente la muestra el frontend antes de pedirlas.
 
+**Transiciones de estado (HU-08)**
+- Solo se permiten: `ACTIVE ↔ PAUSED`, `ACTIVE → CLOSED` y `PAUSED → CLOSED`. `CLOSED` y `FINISHED` son definitivos, y `FINISHED` solo lo asigna el vencimiento automático.
+- Cualquier otra transición (por ejemplo `CLOSED → ACTIVE` o pedir el mismo estado) responde 409 sin cambiar nada. Se valida antes de pedir el PIN y la contraseña, así que no gasta intentos de HU-S07.
+
 **Contraseña para aportar (HU-S06)**
 - El aporte exige la contraseña de la cuenta. Si falta o es incorrecta responde 400 con el mensaje genérico de HU-S01, y no se descuenta saldo, no se registra la transacción ni cambia el recaudo.
 
@@ -439,7 +443,6 @@ tail -f /home/ubuntu/app.log           # Log en vivo
 - **`POST /api/categories` es público:** cualquier persona puede crear categorías sin iniciar sesión. Debería exigir rol `admin`.
 - **Migraciones manuales:** los scripts SQL se ejecutan a mano; no hay Flyway ni Liquibase.
 - **Notificación al cerrar campaña:** hoy solo se registra en el log; no se envía correo a los patrocinadores.
-- **Una campaña cerrada se puede reabrir:** `PATCH /status` no impide pasar de `CLOSED` a `ACTIVE`, aunque el cierre debería ser permanente (HU-08, HU-S05).
 
 ---
 
